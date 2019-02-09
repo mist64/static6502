@@ -1,0 +1,169 @@
+#define RTS PC = RAM[0x0100+(++S)]; PC = PC + (RAM[0x0100+(++S)]<<8) + 1; goto RTS_SWITCH;
+#define RAM_BOT 0x0800
+#define RAM_TOP 0xA000
+unsigned short PC_DEBUG;
+#define PRDEBUG(s) printf("%s %02X %02X %02X %02X  %d%d-%d%d%d%d%d\n", s, A, X, Y, S, N, V, B, D, I, Z, C)
+#define SETSZ(a) Z = a? 0:1; N = a>>7
+#define SETC(a) C = a&0x100? 1:0
+#define SETNC(a) C = a&0x100? 0:1
+#define SETV(a) V = a? 1:0
+
+unsigned char MSGFLG, STATUS;
+//DEBUG
+unsigned char c;
+
+lFF99:
+#ifdef DEBUG
+	printf("KERNAL: RAMBOT\n");
+#endif
+	if (!C) {
+		printf("UNIMPL: set top of RAM");
+		return;
+	}
+	X = RAM_TOP&0xFF;
+	Y = RAM_TOP>>8;
+	RTS;
+
+lFF9C:
+#ifdef DEBUG
+	printf("KERNAL: RAMBOT\n");
+#endif
+	if (!C) {
+		printf("UNIMPL: set bot of RAM");
+		return;
+	}
+	X = RAM_BOT&0xFF;
+	Y = RAM_BOT>>8;
+	RTS;
+	
+lFFCF:	/* input char on current device */
+//	printf("WARNING: UNIMPL: lFFCF\n");
+	A = getchar();
+	if (A=='\n') A = '\r';
+	C = 0;
+	RTS;
+
+lFFD2:
+//	temp8 = A==13? 10:A;
+	temp8 = A;
+	printf("%c", temp8);
+	C = 0;
+	RTS;
+
+
+l0054:
+		printf("UNIMPL: l0054\n");
+		return;
+lFFB7:
+		printf("UNIMPL: lFFB7\n");
+		return;
+lFFDE:
+		printf("UNIMPL: lFFDE\n");
+		return;
+l030A:
+		goto lAE86;
+
+l0022:
+		printf("UNIMPL: l0022\n");
+		return;
+l0080:
+		printf("UNIMPL: l0080\n");
+		return;
+lFFDB:
+		printf("UNIMPL: lFFDB\n");
+		return;
+lFFE1: //STOP
+		// TODO
+		Z = 0;
+		RTS;
+
+l0308:
+		goto lA7E4;
+
+lFFE7: // CLALL
+		RTS;
+l0304:
+		goto lA57C;
+
+/*
+0073   E6 7A      INC $7A
+0075   D0 02      BNE $0079
+0077   E6 7B      INC $7B
+0079   AD 60 EA   LDA $XXXX
+007C   C9 3A      CMP #$3A   ; colon
+007E   B0 0A      BCS $008A
+0080   C9 20      CMP #$20   ; space
+0082   F0 EF      BEQ $0073
+0084   38         SEC
+0085   E9 30      SBC #$30   ; 0
+0087   38         SEC
+0088   E9 D0      SBC #$D0
+008A   60         RTS
+*/
+l0073: //CHRGET
+/* C = 0: is '0' to '9' */
+/*
+for (c=0; c!=255; c++) {
+	printf("%02X ", (c-0x30)&0xFF);
+}
+for (c=0; c!=255; c++) {
+	if (((c-0x30)&0xFF) >= 0xD0)
+		printf("1");
+	else
+		printf("0");
+}
+	printf("\n");
+*/
+#if DEBUG
+printf("CHRGET");
+#endif
+		RAM[0x7A]++;
+		if (!RAM[0x7A])
+			RAM[0x7B]++;
+goto skip_print;
+l0079:
+#if DEBUG
+printf("CHRGOT");
+#endif
+skip_print:
+		A = RAM[RAM[0x7A] | (RAM[0x7B]<<8)];
+		if (A < 0x3A) {
+			if (A==0x20)
+				goto l0073;
+			A -= 0x30;
+			temp16 = (unsigned short)A-(unsigned short)0xD0;
+			A = temp16;
+			SETSZ(A);
+//			SETC(temp16);
+//			set carry if (A-0x30)&0xFF >= 0xD0;
+			C = A < 0x30? 1:0;
+			SETV(((A ^ temp16) & 0x80) && ((A ^ 0x3A) & 0x80));
+		} else {
+			C = 1;
+		}
+#if DEBUG
+printf("(0x%02X%02X): '%c' (0x%2X)\n", RAM[0x7B], RAM[0x7A], A, A);
+#endif
+		RTS;
+
+l0302: // IMAIN ($A483)
+		goto lA483;
+
+lFF90: // SETMSG
+		MSGFLG = A;
+		A = STATUS;
+		RTS;
+
+lFFCC:
+#ifdef DEBUG
+		printf("WARNING: UNIMPL: CLRCHN\n");
+#endif
+		RTS;
+l0300:
+		goto lE38B;
+
+lFFF0: // PLOT
+		// TODO
+		X = 0;
+		Y = 0;
+		RTS;

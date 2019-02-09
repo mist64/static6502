@@ -1,0 +1,507 @@
+#define RTS PC = RAM[0x0100+(++S)]; PC = PC + (RAM[0x0100+(++S)]<<8) + 1; goto RTS_SWITCH;
+#define RAM_BOT 0x0800
+#define RAM_TOP 0xA000
+unsigned short PC_DEBUG;
+#define PRDEBUG(s) printf("%s %02X %02X %02X %02X  %d%d-%d%d%d%d%d\n", s, A, X, Y, S, N, V, B, D, I, Z, C)
+#define SETSZ(a) Z = (a)? 0:1; N = ((signed char)(a))<0?1:0
+#define SETC(a) C = (a)&0x100? 1:0
+#define SETNC(a) C = (a)&0x100? 0:1
+#if 1 // CBMBASIC doesn't need V emulation, so we could turn this off
+#define SETV(a) V = (a)? 1:0
+#else
+#define SETV(a)
+#endif
+
+// KERNAL internal state
+unsigned char kernal_msgflag, kernal_status = 0;
+unsigned short kernal_filename;
+unsigned char kernal_filename_len;
+unsigned char kernal_lfn, kernal_dev, kernal_sec;
+
+// KERNAL constants
+#define KERN_ERR_NONE					0
+#define KERN_ERR_FILE_NOT_FOUND			4
+#define KERN_ERR_DEVICE_NOT_PRESENT		5
+#define KERN_ERR_MISSING_FILE_NAME		8
+#define KERN_ERR_ILLEGAL_DEVICE_NUMBER	9
+
+#include <dirent.h>
+#include <sys/stat.h>
+
+//DEBUG
+unsigned char c;
+
+load_state:
+#ifndef BACK_TO_RECOMPILER
+	goto start;
+#else
+{
+	FILE *f;
+	if (!(f = fopen("/tmp/recstate", "r"))) {
+		/* no state */
+		goto start;
+	}
+	fread(&PC, sizeof(PC), 1, f);
+	fread(&A,  sizeof(A),  1, f);
+	fread(&X,  sizeof(X),  1, f);
+	fread(&Y,  sizeof(Y),  1, f);
+	fread(&S,  sizeof(S),  1, f);
+	fread(&N,  sizeof(N),  1, f);
+	fread(&V,  sizeof(V),  1, f);
+	fread(&B,  sizeof(B),  1, f);
+	fread(&D,  sizeof(D),  1, f);
+	fread(&I,  sizeof(I),  1, f);
+	fread(&Z,  sizeof(Z),  1, f);
+	fread(&C,  sizeof(C),  1, f);
+
+	fread(RAM, sizeof(RAM), 1, f);
+	fclose(f);
+
+	goto RTS_SWITCH;
+}
+#endif
+
+not_found:
+/* save state */
+{
+/* maybe it's CHRGET/CHRGOT */
+	switch(PC) {
+		case 0x73:
+			goto CHRGET;
+		case 0x79:
+			goto CHRGOT;	
+	}
+/* maybe it jumps to a JMP in RAM */
+	if (RAM[PC]==0x4C) {
+		PC=RAM[(PC+1)&0xFFFF] | RAM[PC+2&0xFFFF]<<8;
+		goto RTS_SWITCH;
+	}
+
+#ifndef BACK_TO_RECOMPILER
+	printf("not found: $%04X\n", PC);
+	exit(1);
+#endif
+
+#ifdef SHOW_RECOMPILING
+	printf("not found: $%04X\n", PC);
+#endif
+
+	FILE *f;
+	if (!(f = fopen("/tmp/recstate", "w"))) {
+		printf("Could not open state file!\n");
+		return 2;
+	}
+	fwrite(&PC, sizeof(PC), 1, f);
+	fwrite(&A,  sizeof(A),  1, f);
+	fwrite(&X,  sizeof(X),  1, f);
+	fwrite(&Y,  sizeof(Y),  1, f);
+	fwrite(&S,  sizeof(S),  1, f);
+	fwrite(&N,  sizeof(N),  1, f);
+	fwrite(&V,  sizeof(V),  1, f);
+	fwrite(&B,  sizeof(B),  1, f);
+	fwrite(&D,  sizeof(D),  1, f);
+	fwrite(&I,  sizeof(I),  1, f);
+	fwrite(&Z,  sizeof(Z),  1, f);
+	fwrite(&C,  sizeof(C),  1, f);
+
+	fwrite(RAM, sizeof(RAM), 1, f);
+	fclose(f);
+}
+/* jump back to recompiler */
+{
+#define MAX_LABEL (5*1000)
+	char recompilername[] = "./static6502";
+	char label[MAX_LABEL];
+	char* a[] = { recompilername, romname, label, 0};
+	int ret;
+
+//	printf("goto $%04X not found!\n", PC);
+	snprintf(label, MAX_LABEL, "0x%04X,", PC);
+	strncat(label, entries, MAX_LABEL); /* concatenate with old list */
+	printf("excecve %s %s %s\n", recompilername, romname, label);
+	ret = execve(recompilername, a, 0);
+/* NOTREACHED */
+	printf("execve returned (%d)!\n", ret);
+	return 2;
+}
+
+/*************/
+/** KERNAL ***/
+/*************/
+// http://members.tripod.com/~Frank_Kontros/kernal/addr.htm
+
+lFF99: // MEMTOP
+#ifdef DEBUG
+	printf("KERNAL: MEMTOP\n");
+#endif
+	if (!C) {
+		printf("UNIMPL: set top of RAM");
+		return;
+	}
+	X = RAM_TOP&0xFF;
+	Y = RAM_TOP>>8;
+	RTS;
+
+lFF9C: // MEMBOT
+#ifdef DEBUG
+	printf("KERNAL: MEMBOT\n");
+#endif
+	if (!C) {
+		printf("UNIMPL: set bot of RAM");
+		return;
+	}
+	X = RAM_BOT&0xFF;
+	Y = RAM_BOT>>8;
+	RTS;
+	
+lFFCF: // CHRIN
+//	printf("WARNING: UNIMPL: CHRIN\n");
+	A = getchar();
+	if (A==255)
+		exit(0);
+	if (A=='\n') A = '\r';
+	C = 0;
+	RTS;
+
+lFFD2: // CHROUT
+#if 0
+	printf("CHROUT: %c (%d)\n", A, A);
+#else
+	switch (A) {
+		case 10:
+			break;
+		case 13:
+			putchar(13);
+			putchar(10);
+			break;
+		case 147:
+			printf("%c[2J%c[;H", 27, 27);
+			break;
+		default:
+			putchar(A);
+	}
+#endif
+	fflush (stdout);
+	C = 0;
+	RTS;
+
+
+//l0054:
+//		printf("UNIMPL: l0054\n");
+//		return;
+lFFB7: // READST
+		A = kernal_status;
+		RTS;
+
+lFFDE: // RDTIM
+		printf("UNIMPL: RDTIM\n");
+		return;
+l030A:
+		goto lAE86;
+
+l0022:
+		printf("UNIMPL: l0022\n");
+		return;
+l0080:
+		printf("UNIMPL: l0080\n");
+		return;
+lFFDB: // SETTIM
+		printf("UNIMPL: SETTIM\n");
+		return;
+lFFE1: //STOP
+		// TODO
+		Z = 0;
+		RTS;
+
+//l0308:
+//		goto lA7E4;
+
+lFFE7: // CLALL
+		RTS;
+//l0304:
+//		goto lA57C;
+
+/*
+0073   E6 7A      INC $7A
+0075   D0 02      BNE $0079
+0077   E6 7B      INC $7B
+0079   AD 60 EA   LDA $XXXX
+007C   C9 3A      CMP #$3A   ; colon
+007E   B0 0A      BCS $008A
+0080   C9 20      CMP #$20   ; space
+0082   F0 EF      BEQ $0073
+0084   38         SEC
+0085   E9 30      SBC #$30   ; 0
+0087   38         SEC
+0088   E9 D0      SBC #$D0
+008A   60         RTS
+*/
+CHRGET: //CHRGET
+#if 1
+		RAM[0x7A]++; SETSZ(RAM[0x7A]);
+		if (!Z) goto CHRGOT;
+		RAM[0x7B]++; SETSZ(RAM[0x7B]);
+CHRGOT:
+		A = RAM[RAM[0x7A] | RAM[0x7B]<<8]; SETSZ(A);
+		temp16 = ((unsigned short)A) - ((unsigned short)0x3A); SETNC(temp16); SETSZ(temp16&0xFF);
+		if (C) goto l008A;
+		temp16 = ((unsigned short)A) - ((unsigned short)0x20); SETNC(temp16); SETSZ(temp16&0xFF);
+		if (Z) goto CHRGET;
+		C = 1;
+		temp16 = (unsigned short)A-(unsigned short)0x30-(unsigned short)(1-C); SETV(((A ^ temp16) & 0x80) && ((A ^ 0x30) & 0x80)); A = temp16; SETSZ(A); SETNC(temp16);
+		C = 1;
+		temp16 = (unsigned short)A-(unsigned short)0xD0-(unsigned short)(1-C); SETV(((A ^ temp16) & 0x80) && ((A ^ 0xD0) & 0x80)); A = temp16; SETSZ(A); SETNC(temp16);
+l008A:
+		RTS;
+#else
+/* C = 0: is '0' to '9' */
+#if DEBUG
+		printf("CHRGET");
+#endif
+		RAM[0x7A]++;
+		if (!RAM[0x7A])
+			RAM[0x7B]++;
+		goto skip_print;
+CHRGOT:
+#if DEBUG
+		printf("CHRGOT");
+#endif
+skip_print:
+		A = RAM[RAM[0x7A] | (RAM[0x7B]<<8)];
+//printf("CHRGXT: %d\n",A);
+		if (A < 0x3A) {
+			if (A==0x20)
+				goto CHRGET;
+			A -= 0x30;
+			temp16 = (unsigned short)A-(unsigned short)0xD0;
+			A = temp16;
+			SETSZ(A);
+//			SETC(temp16);
+//			set carry if (A-0x30)&0xFF >= 0xD0;
+			C = A < 0x30? 1:0;
+			SETV(((A ^ temp16) & 0x80) && ((A ^ 0x3A) & 0x80));
+		} else {
+			C = 1;
+		}
+#if DEBUG
+printf("(0x%02X%02X): '%c' (0x%2X)\n", RAM[0x7B], RAM[0x7A], A, A);
+#endif
+		RTS;
+#endif
+
+//l0302: // IMAIN ($A483)
+//		goto lA483;
+
+lFF90: // SETMSG
+		kernal_msgflag = A;
+		A = kernal_status;
+		RTS;
+
+lFFCC:
+#ifdef DEBUG
+		printf("WARNING: UNIMPL: CLRCHN\n");
+#endif
+		RTS;
+//l0300:
+//		goto lE38B;
+
+lFFF0: // PLOT
+		// TODO
+		X = 0;
+		Y = 0;
+		RTS;
+
+lFFC9:
+		printf("UNIMPL: CHKOUT\n");
+		return;
+lFFBA: // SETLFS
+		kernal_lfn = A;
+		kernal_dev = X;
+		kernal_sec = Y;
+		RTS;
+
+lFFBD: // SETNAM
+		kernal_filename = X | Y<<8;
+		kernal_filename_len = A;
+		RTS;
+
+lFFC3:
+		printf("UNIMPL: CLOSE\n");
+		return;
+lFFC0:
+		printf("UNIMPL: OPEN\n");
+		return;
+lFFD5:  // LOAD
+{
+		FILE *f;
+		unsigned char savedbyte;
+		unsigned short start;
+		unsigned short end;
+
+		if (A) {
+			printf("UNIMPL: VERIFY\n");
+			return;
+		}
+		if (!kernal_filename_len) {
+			C = 1;
+			A = kernal_status = KERN_ERR_MISSING_FILE_NAME;
+			RTS;
+		}
+		if (RAM[kernal_filename]=='$') {
+			DIR *dirp;
+			struct dirent *dp;
+			struct stat st;
+			unsigned short old_memp, memp = 0x0801; // TODO hack!
+			int i;
+			int file_size;
+
+			old_memp = memp;
+			memp += 2;
+			RAM[memp++] = 0;
+			RAM[memp++] = 0;
+			RAM[memp++] = 0x12; /* REVERS ON */
+			RAM[memp++] = '"';
+			for (i=0; i<16; i++)
+				RAM[memp+i] = ' ';
+			getcwd(&RAM[memp], 256);
+			memp += strlen(&RAM[memp]); /* only 16 on COMMODORE DOS */
+			RAM[memp++] = '"';
+			RAM[memp++] = ' ';
+			RAM[memp++] = '0';
+			RAM[memp++] = '0';
+			RAM[memp++] = ' ';
+			RAM[memp++] = '2';
+			RAM[memp++] = 'A';
+			RAM[memp++] = 0;
+
+			RAM[old_memp] = (memp) & 0xFF;
+			RAM[old_memp+1] = (memp) >> 8;
+			
+			dirp = opendir(".");
+			while (dp = readdir(dirp)) {
+				stat(dp->d_name, &st);
+				file_size = (st.st_size + 253)/254;
+				if (file_size>0xFFFF)
+					file_size = 0xFFFF;
+				old_memp = memp;
+				memp += 2;
+				RAM[memp++] = file_size & 0xFF;
+				RAM[memp++] = file_size >> 8;
+				if (file_size<1000) {
+					RAM[memp++] = ' ';
+					if (file_size<100) {
+						RAM[memp++] = ' ';
+						if (file_size<10) {
+							RAM[memp++] = ' ';
+						}
+					}
+				}
+				RAM[memp++] = '"';
+				if (dp->d_namlen>16)
+					dp->d_namlen=16; /* TODO hack */
+				memcpy(&RAM[memp], dp->d_name, dp->d_namlen);
+				memp += dp->d_namlen;
+				RAM[memp++] = '"';
+				for (i=dp->d_namlen; i<16; i++)
+					RAM[memp++] = ' ';
+				RAM[memp++] = ' ';
+				RAM[memp++] = 'P';
+				RAM[memp++] = 'R';
+				RAM[memp++] = 'G';
+				RAM[memp++] = ' ';
+				RAM[memp++] = ' ';
+				RAM[memp++] = 0;
+
+				RAM[old_memp] = (memp) & 0xFF;
+				RAM[old_memp+1] = (memp) >> 8;
+			}
+			RAM[memp] = 0;
+			RAM[memp+1] = 0;
+			(void)closedir(dirp);
+			end = memp + 2;
+
+/*
+for (i=0; i<255; i++) {
+	if (!(i&15))
+		printf("\n %04X  ", 0x0800+i);
+	printf("%02X ", RAM[0x0800+i]);
+}
+*/
+			goto load_noerr;
+		}
+
+		savedbyte = RAM[kernal_filename+kernal_filename_len]; /* TODO possible overflow */
+		RAM[kernal_filename+kernal_filename_len] = 0;
+		f = fopen((signed char*)&RAM[kernal_filename], "r");
+		RAM[kernal_filename+kernal_filename_len];
+		if (!f) {
+			C = 1;
+			A = kernal_status = KERN_ERR_FILE_NOT_FOUND;
+			RTS;
+		}
+		start = ((unsigned char)fgetc(f)) | ((unsigned char)fgetc(f))<<8;
+//		printf("start: 0x%04x\n", start);
+		if (!kernal_sec)
+			start = X | Y<<8;
+		end = start + fread(&RAM[start], 65536-start, 1, f); /* TODO may overwrite ROM */
+		fclose(f);
+load_noerr:
+		X = end & 0xFF;
+		Y = end >> 8;
+		C = 0;
+		A = kernal_status = KERN_ERR_NONE;
+		RTS;
+}
+
+lFFD8: // SAVE
+{
+		FILE *f;
+		unsigned char savedbyte;
+		unsigned short start;
+		unsigned short end;
+
+		start = RAM[A] | RAM[A+1]<<8;
+		end = X | Y << 8;
+		if (end<start) {
+			C = 1;
+			A = kernal_status = KERN_ERR_NONE;
+			RTS;
+		}
+		if (!kernal_filename_len) {
+			C = 1;
+			A = kernal_status = KERN_ERR_MISSING_FILE_NAME;
+			RTS;
+		}
+		savedbyte = RAM[kernal_filename+kernal_filename_len]; /* TODO possible overflow */
+		RAM[kernal_filename+kernal_filename_len] = 0;
+		f = fopen((signed char*)&RAM[kernal_filename], "w"); /* overwrite - these are not the COMMODORE DOS semantics! */
+		RAM[kernal_filename+kernal_filename_len];
+		if (!f) {
+			C = 1;
+			A = kernal_status = KERN_ERR_FILE_NOT_FOUND;
+			RTS;
+		}
+		fputc(start & 0xFF, f);
+		fputc(start >> 8, f);
+		fwrite(&RAM[start], end-start, 1, f);
+		fclose(f);
+		C = 0;
+		A = kernal_status = KERN_ERR_NONE;
+		RTS;
+}
+
+l0014:
+		printf("UNIMPL: l0014\n");
+		return;
+lFFE4:
+		printf("UNIMPL: GETIN\n");
+		return;
+lFFC6:
+		printf("UNIMPL: CHKIN\n");
+		return;
+lFFF3:
+		printf("UNIMPL: l0022\n");
+		return;
+//l0306:
+//	goto lA71A;
+

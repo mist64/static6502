@@ -1,0 +1,293 @@
+#define RTS PC = RAM[0x0100+(++S)]; PC = PC + (RAM[0x0100+(++S)]<<8) + 1; goto RTS_SWITCH;
+#define RAM_BOT 0x0800
+#define RAM_TOP 0xA000
+unsigned short PC_DEBUG;
+#define PRDEBUG(s) printf("%s %02X %02X %02X %02X  %d%d-%d%d%d%d%d\n", s, A, X, Y, S, N, V, B, D, I, Z, C)
+#define SETSZ(a) Z = (a)? 0:1; N = (a)>>7
+#define SETC(a) C = (a)&0x100? 1:0
+#define SETNC(a) C = (a)&0x100? 0:1
+#define SETV(a) V = (a)? 1:0
+
+unsigned char MSGFLG, STATUS;
+//DEBUG
+unsigned char c;
+
+load_state:
+{
+	FILE *f;
+	if (!(f = fopen("/tmp/recstate", "r"))) {
+		/* no state */
+		goto start;
+	}
+	fread(&PC, sizeof(PC), 1, f);
+	fread(&A,  sizeof(A),  1, f);
+	fread(&X,  sizeof(X),  1, f);
+	fread(&Y,  sizeof(Y),  1, f);
+	fread(&S,  sizeof(S),  1, f);
+	fread(&N,  sizeof(N),  1, f);
+	fread(&V,  sizeof(V),  1, f);
+	fread(&B,  sizeof(B),  1, f);
+	fread(&D,  sizeof(D),  1, f);
+	fread(&I,  sizeof(I),  1, f);
+	fread(&Z,  sizeof(Z),  1, f);
+	fread(&C,  sizeof(C),  1, f);
+
+	fread(RAM, sizeof(RAM), 1, f);
+	fclose(f);
+
+	goto RTS_SWITCH;
+}
+
+not_found:
+/* save state */
+{
+#ifdef SHOW_RECOMPILING
+	printf("not found: $%04X\n", PC);
+#endif
+
+	FILE *f;
+	if (!(f = fopen("/tmp/recstate", "w"))) {
+		printf("Could not open state file!\n");
+		return 2;
+	}
+	fwrite(&PC, sizeof(PC), 1, f);
+	fwrite(&A,  sizeof(A),  1, f);
+	fwrite(&X,  sizeof(X),  1, f);
+	fwrite(&Y,  sizeof(Y),  1, f);
+	fwrite(&S,  sizeof(S),  1, f);
+	fwrite(&N,  sizeof(N),  1, f);
+	fwrite(&V,  sizeof(V),  1, f);
+	fwrite(&B,  sizeof(B),  1, f);
+	fwrite(&D,  sizeof(D),  1, f);
+	fwrite(&I,  sizeof(I),  1, f);
+	fwrite(&Z,  sizeof(Z),  1, f);
+	fwrite(&C,  sizeof(C),  1, f);
+
+	fwrite(RAM, sizeof(RAM), 1, f);
+	fclose(f);
+}
+/* jump back to recompiler */
+{
+#define MAX_LABEL 100
+	char recompilername[] = "./static6502";
+	char label[MAX_LABEL];
+	char* a[] = { recompilername, romname, label, 0};
+
+//	printf("goto $%04X not found!\n", PC);
+	snprintf(label, MAX_LABEL, "0x%04X,", PC);
+	strncat(label, entries, MAX_LABEL); /* concatenate with old list */
+	execve(recompilername, a, 0);
+/* NOTREACHED */
+}
+
+/*************/
+/** KERNAL ***/
+/*************/
+// http://members.tripod.com/~Frank_Kontros/kernal/addr.htm
+
+lFF99: // MEMTOP
+#ifdef DEBUG
+	printf("KERNAL: MEMTOP\n");
+#endif
+	if (!C) {
+		printf("UNIMPL: set top of RAM");
+		return;
+	}
+	X = RAM_TOP&0xFF;
+	Y = RAM_TOP>>8;
+	RTS;
+
+lFF9C: // MEMBOT
+#ifdef DEBUG
+	printf("KERNAL: MEMBOT\n");
+#endif
+	if (!C) {
+		printf("UNIMPL: set bot of RAM");
+		return;
+	}
+	X = RAM_BOT&0xFF;
+	Y = RAM_BOT>>8;
+	RTS;
+	
+lFFCF: // CHRIN
+//	printf("WARNING: UNIMPL: CHRIN\n");
+	A = getchar();
+	if (A=='\n') A = '\r';
+	C = 0;
+	RTS;
+
+lFFD2: // CHROUT
+#if 0
+	printf("CHROUT: %c (%d)\n", A, A);
+#else
+	switch (A) {
+		case 10:
+			break;
+		case 13:
+			putchar(10);
+			break;
+		case 147:
+			printf("%c[2J", 27);
+			break;
+		default:
+			putchar(A);
+	}
+#endif
+	fflush (stdout);
+	C = 0;
+	RTS;
+
+
+l0054:
+		printf("UNIMPL: l0054\n");
+		return;
+lFFB7: // READST
+		printf("UNIMPL: READST\n");
+		return;
+lFFDE: // RDTIM
+		printf("UNIMPL: RDTIM\n");
+		return;
+l030A:
+		goto lAE86;
+
+l0022:
+		printf("UNIMPL: l0022\n");
+		return;
+l0080:
+		printf("UNIMPL: l0080\n");
+		return;
+lFFDB: // SETTIM
+		printf("UNIMPL: SETTIM\n");
+		return;
+lFFE1: //STOP
+		// TODO
+		Z = 0;
+		RTS;
+
+l0308:
+		goto lA7E4;
+
+lFFE7: // CLALL
+		RTS;
+l0304:
+		goto lA57C;
+
+/*
+0073   E6 7A      INC $7A
+0075   D0 02      BNE $0079
+0077   E6 7B      INC $7B
+0079   AD 60 EA   LDA $XXXX
+007C   C9 3A      CMP #$3A   ; colon
+007E   B0 0A      BCS $008A
+0080   C9 20      CMP #$20   ; space
+0082   F0 EF      BEQ $0073
+0084   38         SEC
+0085   E9 30      SBC #$30   ; 0
+0087   38         SEC
+0088   E9 D0      SBC #$D0
+008A   60         RTS
+*/
+l0073: //CHRGET
+/* C = 0: is '0' to '9' */
+/*
+for (c=0; c!=255; c++) {
+	printf("%02X ", (c-0x30)&0xFF);
+}
+for (c=0; c!=255; c++) {
+	if (((c-0x30)&0xFF) >= 0xD0)
+		printf("1");
+	else
+		printf("0");
+}
+	printf("\n");
+*/
+#if DEBUG
+printf("CHRGET");
+#endif
+		RAM[0x7A]++;
+		if (!RAM[0x7A])
+			RAM[0x7B]++;
+goto skip_print;
+l0079:
+#if DEBUG
+printf("CHRGOT");
+#endif
+skip_print:
+		A = RAM[RAM[0x7A] | (RAM[0x7B]<<8)];
+		if (A < 0x3A) {
+			if (A==0x20)
+				goto l0073;
+			A -= 0x30;
+			temp16 = (unsigned short)A-(unsigned short)0xD0;
+			A = temp16;
+			SETSZ(A);
+//			SETC(temp16);
+//			set carry if (A-0x30)&0xFF >= 0xD0;
+			C = A < 0x30? 1:0;
+			SETV(((A ^ temp16) & 0x80) && ((A ^ 0x3A) & 0x80));
+		} else {
+			C = 1;
+		}
+#if DEBUG
+printf("(0x%02X%02X): '%c' (0x%2X)\n", RAM[0x7B], RAM[0x7A], A, A);
+#endif
+		RTS;
+
+//l0302: // IMAIN ($A483)
+//		goto lA483;
+
+lFF90: // SETMSG
+		MSGFLG = A;
+		A = STATUS;
+		RTS;
+
+lFFCC:
+#ifdef DEBUG
+		printf("WARNING: UNIMPL: CLRCHN\n");
+#endif
+		RTS;
+//l0300:
+//		goto lE38B;
+
+lFFF0: // PLOT
+		// TODO
+		X = 0;
+		Y = 0;
+		RTS;
+
+lFFC9:
+		printf("UNIMPL: CHKOUT\n");
+		return;
+lFFBA:
+		printf("UNIMPL: SETLFS\n");
+		return;
+lFFBD:
+		printf("UNIMPL: SETNAM\n");
+		return;
+lFFC3:
+		printf("UNIMPL: CLOSE\n");
+		return;
+lFFC0:
+		printf("UNIMPL: OPEN\n");
+		return;
+lFFD5:
+		printf("UNIMPL: LOAD\n");
+		return;
+lFFD8:
+		printf("UNIMPL: SAVE\n");
+		return;
+l0014:
+		printf("UNIMPL: l0014\n");
+		return;
+lFFE4:
+		printf("UNIMPL: GETIN\n");
+		return;
+lFFC6:
+		printf("UNIMPL: CHKIN\n");
+		return;
+lFFF3:
+		printf("UNIMPL: l0022\n");
+		return;
+//l0306:
+//	goto lA71A;
+

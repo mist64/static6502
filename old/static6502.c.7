@@ -1,0 +1,1188 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+//#define VERBOSE 1
+//#define DEBUG 1
+//#define DIVIDE 1
+//#define SHOW_RECOMPILING
+
+/*
+ 6502 static recompiler
+ 2007-10-25 20:10-21:28 create 6502 tables
+            22:52-00:09 disassembler, coloring
+ 2007-10-26 18:54-19:17 coloring, labels, recompiler
+ 2007-10-28 17:04-17:44 recompiler
+            18:40-20:45 recompiler, special case BIT/SKP
+			22:16-00:46 RTS_SWITCH
+ 2007-10-29 21:39-23:10 more instructions, fixes
+ 2007-10-30 20:35-23:00 CHRGET, missing instructions, fixes
+ 2007-10-31 15:25-17:18 all BASIC calls, fixes
+ 2007-11-02 14:00-16:52 jump to recompiler, state, fixes
+            20:09-20:35 fixes, optimizations
+			22:11-
+ */
+
+//typedef char int8_t;
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+
+typedef unsigned char instr_t;
+typedef unsigned char addmode_t;
+
+enum {
+	TYPE_UNKNOWN     = 0,
+	TYPE_CODE        = 1,
+	TYPE_CODE_TARGET = 2,
+	TYPE_AFTER_JSR   = 4
+};
+
+enum {
+	INSTR_ADC,
+	INSTR_AND,
+	INSTR_ASL,
+	INSTR_BCC,
+	INSTR_BCS,
+	INSTR_BEQ,
+	INSTR_BIT,
+	INSTR_BMI,
+	INSTR_BNE,
+	INSTR_BPL,
+	INSTR_BRK,
+	INSTR_BVC,
+	INSTR_BVS,
+	INSTR_CLC,
+	INSTR_CLD,
+	INSTR_CLI,
+	INSTR_CLV,
+	INSTR_CMP,
+	INSTR_CPX,
+	INSTR_CPY,
+	INSTR_DEC,
+	INSTR_DEX,
+	INSTR_DEY,
+	INSTR_EOR,
+	INSTR_INC,
+	INSTR_INX,
+	INSTR_INY,
+	INSTR_JMP,
+	INSTR_JSR,
+	INSTR_LDA,
+	INSTR_LDX,
+	INSTR_LDY,
+	INSTR_LSR,
+	INSTR_NOP,
+	INSTR_ORA,
+	INSTR_PHA,
+	INSTR_PHP,
+	INSTR_PLA,
+	INSTR_PLP,
+	INSTR_ROL,
+	INSTR_ROR,
+	INSTR_RTI,
+	INSTR_RTS,
+	INSTR_SBC,
+	INSTR_SEC,
+	INSTR_SED,
+	INSTR_SEI,
+	INSTR_STA,
+	INSTR_STX,
+	INSTR_STY,
+	INSTR_TAX,
+	INSTR_TAY,
+	INSTR_TSX,
+	INSTR_TXA,
+	INSTR_TXS,
+	INSTR_TYA,
+	INSTR_XXX	
+};
+
+enum {
+	ADDMODE_ABS,
+	ADDMODE_ABSX,
+	ADDMODE_ABSY,
+	ADDMODE_ACC,
+	ADDMODE_BRA,
+	ADDMODE_IMM,
+	ADDMODE_IMPL,
+	ADDMODE_IND,
+	ADDMODE_INDX,
+	ADDMODE_INDY,
+	ADDMODE_ZP,
+	ADDMODE_ZPX,
+	ADDMODE_ZPY
+};
+
+unsigned char length[] = {
+	[ADDMODE_ABS]	2,
+	[ADDMODE_ABSX]	2,
+	[ADDMODE_ABSY]	2,
+	[ADDMODE_ACC]	0,
+	[ADDMODE_BRA]	1,
+	[ADDMODE_IMM]	1,
+	[ADDMODE_IMPL]	0,
+	[ADDMODE_IND]	2,
+	[ADDMODE_INDX]	1,
+	[ADDMODE_INDY]	1,
+	[ADDMODE_ZP]	1,
+	[ADDMODE_ZPX]	1,
+	[ADDMODE_ZPY]	1
+};
+
+char* mnemo[] = {
+	[INSTR_ADC] "ADC",
+	[INSTR_AND] "AND",
+	[INSTR_ASL] "ASL",
+	[INSTR_BCC] "BCC",
+	[INSTR_BCS] "BCS",
+	[INSTR_BEQ] "BEQ",
+	[INSTR_BIT] "BIT",
+	[INSTR_BMI] "BMI",
+	[INSTR_BNE] "BNE",
+	[INSTR_BPL] "BPL",
+	[INSTR_BRK] "BRK",
+	[INSTR_BVC] "BVC",
+	[INSTR_BVS] "BVS",
+	[INSTR_CLC] "CLC",
+	[INSTR_CLD] "CLD",
+	[INSTR_CLI] "CLI",
+	[INSTR_CLV] "CLV",
+	[INSTR_CMP] "CMP",
+	[INSTR_CPX] "CPX",
+	[INSTR_CPY] "CPY",
+	[INSTR_DEC] "DEC",
+	[INSTR_DEX] "DEX",
+	[INSTR_DEY] "DEY",
+	[INSTR_EOR] "EOR",
+	[INSTR_INC] "INC",
+	[INSTR_INX] "INX",
+	[INSTR_INY] "INY",
+	[INSTR_JMP] "JMP",
+	[INSTR_JSR] "JSR",
+	[INSTR_LDA] "LDA",
+	[INSTR_LDX] "LDX",
+	[INSTR_LDY] "LDY",
+	[INSTR_LSR] "LSR",
+	[INSTR_NOP] "NOP",
+	[INSTR_ORA] "ORA",
+	[INSTR_PHA] "PHA",
+	[INSTR_PHP] "PHP",
+	[INSTR_PLA] "PLA",
+	[INSTR_PLP] "PLP",
+	[INSTR_ROL] "ROL",
+	[INSTR_ROR] "ROR",
+	[INSTR_RTI] "RTI",
+	[INSTR_RTS] "RTS",
+	[INSTR_SBC] "SBC",
+	[INSTR_SEC] "SEC",
+	[INSTR_SED] "SED",
+	[INSTR_SEI] "SEI",
+	[INSTR_STA] "STA",
+	[INSTR_STX] "STX",
+	[INSTR_STY] "STY",
+	[INSTR_TAX] "TAX",
+	[INSTR_TAY] "TAY",
+	[INSTR_TSX] "TSX",
+	[INSTR_TXA] "TXA",
+	[INSTR_TXS] "TXS",
+	[INSTR_TYA] "TYA",
+	[INSTR_XXX] "???"	
+};
+
+struct {
+	instr_t instr;
+	addmode_t addmode;
+} instraddmode[256] = {
+/* 00 */{ INSTR_BRK, ADDMODE_IMPL },
+/* 01 */{ INSTR_ORA, ADDMODE_INDX },
+/* 02 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 03 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 04 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 05 */{ INSTR_ORA, ADDMODE_ZP },
+/* 06 */{ INSTR_ASL, ADDMODE_ZP },
+/* 07 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 08 */{ INSTR_PHP, ADDMODE_IMPL },
+/* 09 */{ INSTR_ORA, ADDMODE_IMM },
+/* 0A */{ INSTR_ASL, ADDMODE_ACC },
+/* 0B */{ INSTR_XXX, ADDMODE_IMPL },
+/* 0C */{ INSTR_XXX, ADDMODE_IMPL },
+/* 0D */{ INSTR_ORA, ADDMODE_ABS },
+/* 0E */{ INSTR_ASL, ADDMODE_ABS },
+/* 0F */{ INSTR_XXX, ADDMODE_IMPL },
+/* 10 */{ INSTR_BPL, ADDMODE_BRA },
+/* 11 */{ INSTR_ORA, ADDMODE_INDY },
+/* 12 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 13 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 14 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 15 */{ INSTR_ORA, ADDMODE_ZPX },
+/* 16 */{ INSTR_ASL, ADDMODE_ZPX },
+/* 17 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 18 */{ INSTR_CLC, ADDMODE_IMPL },
+/* 19 */{ INSTR_ORA, ADDMODE_ABSY },
+/* 1A */{ INSTR_XXX, ADDMODE_IMPL },
+/* 1B */{ INSTR_XXX, ADDMODE_IMPL },
+/* 1C */{ INSTR_XXX, ADDMODE_IMPL },
+/* 1D */{ INSTR_ORA, ADDMODE_ABSX },
+/* 1E */{ INSTR_ASL, ADDMODE_ABSX },
+/* 1F */{ INSTR_XXX, ADDMODE_IMPL },
+/* 20 */{ INSTR_JSR, ADDMODE_ABS },
+/* 21 */{ INSTR_AND, ADDMODE_INDX },
+/* 22 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 23 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 24 */{ INSTR_BIT, ADDMODE_ZP },
+/* 25 */{ INSTR_AND, ADDMODE_ZP },
+/* 26 */{ INSTR_ROL, ADDMODE_ZP },
+/* 27 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 28 */{ INSTR_PLP, ADDMODE_IMPL },
+/* 29 */{ INSTR_AND, ADDMODE_IMM },
+/* 2A */{ INSTR_ROL, ADDMODE_ACC },
+/* 2B */{ INSTR_XXX, ADDMODE_IMPL },
+/* 2C */{ INSTR_BIT, ADDMODE_ABS },
+/* 2D */{ INSTR_AND, ADDMODE_ABS },
+/* 2E */{ INSTR_ROL, ADDMODE_ABS },
+/* 2F */{ INSTR_XXX, ADDMODE_IMPL },
+/* 30 */{ INSTR_BMI, ADDMODE_BRA },
+/* 31 */{ INSTR_AND, ADDMODE_INDY },
+/* 32 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 33 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 34 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 35 */{ INSTR_AND, ADDMODE_ZPX },
+/* 36 */{ INSTR_ROL, ADDMODE_ZPX },
+/* 37 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 38 */{ INSTR_SEC, ADDMODE_IMPL },
+/* 39 */{ INSTR_AND, ADDMODE_ABSY },
+/* 3A */{ INSTR_XXX, ADDMODE_IMPL },
+/* 3B */{ INSTR_XXX, ADDMODE_IMPL },
+/* 3C */{ INSTR_XXX, ADDMODE_IMPL },
+/* 3D */{ INSTR_AND, ADDMODE_ABSX },
+/* 3E */{ INSTR_ROL, ADDMODE_ABSX },
+/* 3F */{ INSTR_XXX, ADDMODE_IMPL },
+/* 40 */{ INSTR_RTI, ADDMODE_IMPL },
+/* 41 */{ INSTR_EOR, ADDMODE_INDX },
+/* 42 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 43 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 44 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 45 */{ INSTR_EOR, ADDMODE_ZP },
+/* 46 */{ INSTR_LSR, ADDMODE_ZP },
+/* 47 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 48 */{ INSTR_PHA, ADDMODE_IMPL },
+/* 49 */{ INSTR_EOR, ADDMODE_IMM },
+/* 4A */{ INSTR_LSR, ADDMODE_ACC },
+/* 4B */{ INSTR_XXX, ADDMODE_IMPL },
+/* 4C */{ INSTR_JMP, ADDMODE_ABS },
+/* 4D */{ INSTR_EOR, ADDMODE_ABS },
+/* 4E */{ INSTR_LSR, ADDMODE_ABS },
+/* 4F */{ INSTR_XXX, ADDMODE_IMPL },
+/* 50 */{ INSTR_BVC, ADDMODE_BRA },
+/* 51 */{ INSTR_EOR, ADDMODE_INDY },
+/* 52 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 53 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 54 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 55 */{ INSTR_EOR, ADDMODE_ZPX },
+/* 56 */{ INSTR_LSR, ADDMODE_ZPX },
+/* 57 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 58 */{ INSTR_CLI, ADDMODE_IMPL },
+/* 59 */{ INSTR_EOR, ADDMODE_ABSY },
+/* 5A */{ INSTR_XXX, ADDMODE_IMPL },
+/* 5B */{ INSTR_XXX, ADDMODE_IMPL },
+/* 5C */{ INSTR_XXX, ADDMODE_IMPL },
+/* 5D */{ INSTR_EOR, ADDMODE_ABSX },
+/* 5E */{ INSTR_LSR, ADDMODE_ABSX },
+/* 5F */{ INSTR_XXX, ADDMODE_IMPL },
+/* 60 */{ INSTR_RTS, ADDMODE_IMPL },
+/* 61 */{ INSTR_ADC, ADDMODE_INDX },
+/* 62 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 63 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 64 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 65 */{ INSTR_ADC, ADDMODE_ZP },
+/* 66 */{ INSTR_ROR, ADDMODE_ZP },
+/* 67 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 68 */{ INSTR_PLA, ADDMODE_IMPL },
+/* 69 */{ INSTR_ADC, ADDMODE_IMM },
+/* 6A */{ INSTR_ROR, ADDMODE_ACC },
+/* 6B */{ INSTR_XXX, ADDMODE_IMPL },
+/* 6C */{ INSTR_JMP, ADDMODE_IND },
+/* 6D */{ INSTR_ADC, ADDMODE_ABS },
+/* 6E */{ INSTR_ROR, ADDMODE_ABS },
+/* 6F */{ INSTR_XXX, ADDMODE_IMPL },
+/* 70 */{ INSTR_BVS, ADDMODE_BRA },
+/* 71 */{ INSTR_ADC, ADDMODE_INDY },
+/* 72 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 73 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 74 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 75 */{ INSTR_ADC, ADDMODE_ZPX },
+/* 76 */{ INSTR_ROR, ADDMODE_ZPX },
+/* 77 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 78 */{ INSTR_SEI, ADDMODE_IMPL },
+/* 79 */{ INSTR_ADC, ADDMODE_ABSY },
+/* 7A */{ INSTR_XXX, ADDMODE_IMPL },
+/* 7B */{ INSTR_XXX, ADDMODE_IMPL },
+/* 7C */{ INSTR_XXX, ADDMODE_IMPL },
+/* 7D */{ INSTR_ADC, ADDMODE_ABSX },
+/* 7E */{ INSTR_ROR, ADDMODE_ABSX },
+/* 7F */{ INSTR_XXX, ADDMODE_IMPL },
+/* 80 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 81 */{ INSTR_STA, ADDMODE_INDX },
+/* 82 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 83 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 84 */{ INSTR_STY, ADDMODE_ZP },
+/* 85 */{ INSTR_STA, ADDMODE_ZP },
+/* 86 */{ INSTR_STX, ADDMODE_ZP },
+/* 87 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 88 */{ INSTR_DEY, ADDMODE_IMPL },
+/* 89 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 8A */{ INSTR_TXA, ADDMODE_IMPL },
+/* 8B */{ INSTR_XXX, ADDMODE_IMPL },
+/* 8C */{ INSTR_STY, ADDMODE_ABS },
+/* 8D */{ INSTR_STA, ADDMODE_ABS },
+/* 8E */{ INSTR_STX, ADDMODE_ABS },
+/* 8F */{ INSTR_XXX, ADDMODE_IMPL },
+/* 90 */{ INSTR_BCC, ADDMODE_BRA },
+/* 91 */{ INSTR_STA, ADDMODE_INDY },
+/* 92 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 93 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 94 */{ INSTR_STY, ADDMODE_ZPX },
+/* 95 */{ INSTR_STA, ADDMODE_ZPX },
+/* 96 */{ INSTR_STX, ADDMODE_ZPY },
+/* 97 */{ INSTR_XXX, ADDMODE_IMPL },
+/* 98 */{ INSTR_TYA, ADDMODE_IMPL },
+/* 99 */{ INSTR_STA, ADDMODE_ABSY },
+/* 9A */{ INSTR_TXS, ADDMODE_IMPL },
+/* 9B */{ INSTR_XXX, ADDMODE_IMPL },
+/* 9C */{ INSTR_XXX, ADDMODE_IMPL },
+/* 9D */{ INSTR_STA, ADDMODE_ABSX },
+/* 9E */{ INSTR_XXX, ADDMODE_IMPL },
+/* 9F */{ INSTR_XXX, ADDMODE_IMPL },
+/* A0 */{ INSTR_LDY, ADDMODE_IMM },
+/* A1 */{ INSTR_LDA, ADDMODE_INDX },
+/* A2 */{ INSTR_LDX, ADDMODE_IMM },
+/* A3 */{ INSTR_XXX, ADDMODE_IMPL },
+/* A4 */{ INSTR_LDY, ADDMODE_ZP },
+/* A5 */{ INSTR_LDA, ADDMODE_ZP },
+/* A6 */{ INSTR_LDX, ADDMODE_ZP },
+/* A7 */{ INSTR_XXX, ADDMODE_IMPL },
+/* A8 */{ INSTR_TAY, ADDMODE_IMPL },
+/* A9 */{ INSTR_LDA, ADDMODE_IMM },
+/* AA */{ INSTR_TAX, ADDMODE_IMPL },
+/* AB */{ INSTR_XXX, ADDMODE_IMPL },
+/* AC */{ INSTR_LDY, ADDMODE_ABS },
+/* AD */{ INSTR_LDA, ADDMODE_ABS },
+/* AE */{ INSTR_LDX, ADDMODE_ABS },
+/* AF */{ INSTR_XXX, ADDMODE_IMPL },
+/* B0 */{ INSTR_BCS, ADDMODE_BRA },
+/* B1 */{ INSTR_LDA, ADDMODE_INDY },
+/* B2 */{ INSTR_XXX, ADDMODE_IMPL },
+/* B3 */{ INSTR_XXX, ADDMODE_IMPL },
+/* B4 */{ INSTR_LDY, ADDMODE_ZPX },
+/* B5 */{ INSTR_LDA, ADDMODE_ZPX },
+/* B6 */{ INSTR_LDX, ADDMODE_ZPY },
+/* B7 */{ INSTR_XXX, ADDMODE_IMPL },
+/* B8 */{ INSTR_CLV, ADDMODE_IMPL },
+/* B9 */{ INSTR_LDA, ADDMODE_ABSY },
+/* BA */{ INSTR_TSX, ADDMODE_IMPL },
+/* BB */{ INSTR_XXX, ADDMODE_IMPL },
+/* BC */{ INSTR_LDY, ADDMODE_ABSX },
+/* BD */{ INSTR_LDA, ADDMODE_ABSX },
+/* BE */{ INSTR_LDX, ADDMODE_ABSY },
+/* BF */{ INSTR_XXX, ADDMODE_IMPL },
+/* C0 */{ INSTR_CPY, ADDMODE_IMM },
+/* C1 */{ INSTR_CMP, ADDMODE_INDX },
+/* C2 */{ INSTR_XXX, ADDMODE_IMPL },
+/* C3 */{ INSTR_XXX, ADDMODE_IMPL },
+/* C4 */{ INSTR_CPY, ADDMODE_ZP },
+/* C5 */{ INSTR_CMP, ADDMODE_ZP },
+/* C6 */{ INSTR_DEC, ADDMODE_ZP },
+/* C7 */{ INSTR_XXX, ADDMODE_IMPL },
+/* C8 */{ INSTR_INY, ADDMODE_IMPL },
+/* C9 */{ INSTR_CMP, ADDMODE_IMM },
+/* CA */{ INSTR_DEX, ADDMODE_IMPL },
+/* CB */{ INSTR_XXX, ADDMODE_IMPL },
+/* CC */{ INSTR_CPY, ADDMODE_ABS },
+/* CD */{ INSTR_CMP, ADDMODE_ABS },
+/* CE */{ INSTR_DEC, ADDMODE_ABS },
+/* CF */{ INSTR_XXX, ADDMODE_IMPL },
+/* D0 */{ INSTR_BNE, ADDMODE_BRA },
+/* D1 */{ INSTR_CMP, ADDMODE_INDY },
+/* D2 */{ INSTR_XXX, ADDMODE_IMPL },
+/* D3 */{ INSTR_XXX, ADDMODE_IMPL },
+/* D4 */{ INSTR_XXX, ADDMODE_IMPL },
+/* D5 */{ INSTR_CMP, ADDMODE_ZPX },
+/* D6 */{ INSTR_DEC, ADDMODE_ZPX },
+/* D7 */{ INSTR_XXX, ADDMODE_IMPL },
+/* D8 */{ INSTR_CLD, ADDMODE_IMPL },
+/* D9 */{ INSTR_CMP, ADDMODE_ABSY },
+/* DA */{ INSTR_XXX, ADDMODE_IMPL },
+/* DB */{ INSTR_XXX, ADDMODE_IMPL },
+/* DC */{ INSTR_XXX, ADDMODE_IMPL },
+/* DD */{ INSTR_CMP, ADDMODE_ABSX },
+/* DE */{ INSTR_DEC, ADDMODE_ABSX },
+/* DF */{ INSTR_XXX, ADDMODE_IMPL },
+/* E0 */{ INSTR_CPX, ADDMODE_IMM },
+/* E1 */{ INSTR_SBC, ADDMODE_INDX },
+/* E2 */{ INSTR_XXX, ADDMODE_IMPL },
+/* E3 */{ INSTR_XXX, ADDMODE_IMPL },
+/* E4 */{ INSTR_CPX, ADDMODE_ZP },
+/* E5 */{ INSTR_SBC, ADDMODE_ZP },
+/* E6 */{ INSTR_INC, ADDMODE_ZP },
+/* E7 */{ INSTR_XXX, ADDMODE_IMPL },
+/* E8 */{ INSTR_INX, ADDMODE_IMPL },
+/* E9 */{ INSTR_SBC, ADDMODE_IMM },
+/* EA */{ INSTR_NOP, ADDMODE_IMPL },
+/* EB */{ INSTR_XXX, ADDMODE_IMPL },
+/* EC */{ INSTR_CPX, ADDMODE_ABS },
+/* ED */{ INSTR_SBC, ADDMODE_ABS },
+/* EE */{ INSTR_INC, ADDMODE_ABS },
+/* EF */{ INSTR_XXX, ADDMODE_IMPL },
+/* F0 */{ INSTR_BEQ, ADDMODE_BRA },
+/* F1 */{ INSTR_SBC, ADDMODE_INDY },
+/* F2 */{ INSTR_XXX, ADDMODE_IMPL },
+/* F3 */{ INSTR_XXX, ADDMODE_IMPL },
+/* F4 */{ INSTR_XXX, ADDMODE_IMPL },
+/* F5 */{ INSTR_SBC, ADDMODE_ZPX },
+/* F6 */{ INSTR_INC, ADDMODE_ZPX },
+/* F7 */{ INSTR_XXX, ADDMODE_IMPL },
+/* F8 */{ INSTR_SED, ADDMODE_IMPL },
+/* F9 */{ INSTR_SBC, ADDMODE_ABSY },
+/* FA */{ INSTR_XXX, ADDMODE_IMPL },
+/* FB */{ INSTR_XXX, ADDMODE_IMPL },
+/* FC */{ INSTR_XXX, ADDMODE_IMPL },
+/* FD */{ INSTR_SBC, ADDMODE_ABSX },
+/* FE */{ INSTR_INC, ADDMODE_ABSX },
+/* FF */{ INSTR_XXX, ADDMODE_IMPL }
+};
+
+uint16_t cbmbasic_funcptr[] = {
+// address table for commands
+0xA830+1,   // end
+0xA741+1,   // for
+0xAD1D+1,   // next
+0xA8F7+1,   // data
+0xABA4+1,   // input#
+(0xABBE)+1,   // input
+0xB080+1,   // dim
+0xAC05+1,   // read
+0xA9A4+1,   // let
+0xA89F+1,   // goto
+0xA870+1,   // run
+0xA927+1,   // if
+0xA81C+1,   // restore
+0xA882+1,   // gosub
+0xA8D1+1,   // return
+0xA93A+1,   // rem
+(0xA82E)+1,   // stop
+0xA94A+1,   // on
+0xB82C+1,   // wait
+0xE167+1,   // load
+0xE155+1,   // save
+0xE164+1,   // verify
+0xB3B2+1,   // def
+0xB823+1,   // poke
+0xAA7F+1,   // print#
+0xAA9F+1,   // print
+0xA856+1,   // cont
+0xA69B+1,   // list
+0xA65D+1,   // clr
+0xAA85+1,   // cmd
+0xE129+1,   // sys
+0xE1BD+1,   // open
+0xE1C6+1,   // close
+0xAB7A+1,   // get
+0xA641+1,   // new
+// address table for functions
+0xBC39,   // sgn
+0xBCCC,   // int
+0xBC58,   // abs
+0x0310,   // usr
+0xB37D,   // fre
+0xB39E,   // pos
+0xBF71,   // sqr
+0xE097,   // rnd
+0xB9EA,   // log
+0xBFED,   // exp
+0xE264,   // cos
+0xE26B,   // sin
+0xE2B4,   // tan
+0xE30E,   // atn
+0xB80D,   // peek
+0xB77C,   // len
+0xB465,   // str$
+0xB7AD,   // val
+0xB78B,   // asc
+0xB6EC,   // chr$
+0xB700,   // left$
+0xB72C,   // right$
+0xB737,   // mid$
+// address table for operators
+0xB869+1,   // plus
+0xB852+1,   // minus
+0xBA2A+1,   // multiply
+0xBB11+1,   // divide
+0xBF7A+1,   // power
+0xAFE8+1,   // AND
+0xAFE5+1,   // OR
+0xBFB3+1,   // negative
+0xAED3+1,   // NOT
+0xB015+1,   // greater / equal / less
+};
+
+uint8_t RAM[65536];
+uint8_t type[65536];
+
+#define MAX_LINE 80
+char line[MAX_LINE];
+
+char *disasm_instr(uint16_t pc) {
+	uint8_t opcode = RAM[pc];
+	char line2[MAX_LINE] = "";
+
+	switch (instraddmode[opcode].addmode) {
+		case ADDMODE_ABS:
+			snprintf(line2, MAX_LINE, "$%04X", RAM[pc+1] | RAM[pc+2]<<8);
+			break;
+		case ADDMODE_ABSX:
+			snprintf(line2, MAX_LINE, "$%04X,X", RAM[pc+1] | RAM[pc+2]<<8);
+			break;
+		case ADDMODE_ABSY:
+			snprintf(line2, MAX_LINE, "$%04X,Y", RAM[pc+1] | RAM[pc+2]<<8);
+			break;
+		case ADDMODE_ACC:
+			snprintf(line2, MAX_LINE, "A");
+			break;
+		case ADDMODE_BRA:
+			snprintf(line2, MAX_LINE, "$%02X", pc+2 + (int8_t)RAM[pc+1]);
+			break;
+		case ADDMODE_IMM:
+			snprintf(line2, MAX_LINE, "#$%02X", RAM[pc+1]);
+			break;
+		case ADDMODE_IMPL:
+			snprintf(line2, MAX_LINE, "");
+			break;
+		case ADDMODE_IND:
+			snprintf(line2, MAX_LINE, "($%04X)", RAM[pc+1] | RAM[pc+2]<<8);
+			break;
+		case ADDMODE_INDX:
+			snprintf(line2, MAX_LINE, "($%02X,X)", RAM[pc+1]);
+			break;
+		case ADDMODE_INDY:
+			snprintf(line2, MAX_LINE, "($%02X),Y", RAM[pc+1]);
+			break;
+		case ADDMODE_ZP:
+			snprintf(line2, MAX_LINE, "$%02X", RAM[pc+1]);
+			break;
+		case ADDMODE_ZPX:
+			snprintf(line2, MAX_LINE, "$%02X,X", RAM[pc+1]);
+			break;
+		case ADDMODE_ZPY:
+			snprintf(line2, MAX_LINE, "$%02X,Y", RAM[pc+1]);
+			break;
+	}
+	snprintf(line, MAX_LINE, "%s %s", mnemo[instraddmode[opcode].instr], line2);
+	return line;
+}
+
+int recompile_instr(FILE *out, uint16_t pc) {
+	uint8_t opcode = RAM[pc];
+	#define MAX_OPERAND 80
+	char operand[MAX_OPERAND];
+	int step1 = 0;
+
+	switch (instraddmode[opcode].addmode) {
+		case ADDMODE_ABS:
+			snprintf(operand, MAX_OPERAND, "RAM[0x%04X]", RAM[pc+1] | RAM[pc+2]<<8);
+			break;
+		case ADDMODE_ABSX:
+			snprintf(operand, MAX_OPERAND, "RAM[(0x%04X + X)&0xFFFF]", RAM[pc+1] | RAM[pc+2]<<8);
+			break;
+		case ADDMODE_ABSY:
+			snprintf(operand, MAX_OPERAND, "RAM[(0x%04X + Y)&0xFFFF]", RAM[pc+1] | RAM[pc+2]<<8);
+			break;
+		case ADDMODE_ACC:
+			snprintf(operand, MAX_OPERAND, "A");
+			break;
+		case ADDMODE_BRA:
+			snprintf(operand, MAX_OPERAND, "l%04X", pc+2 + (int8_t)RAM[pc+1]);
+			break;
+		case ADDMODE_IMM:
+			snprintf(operand, MAX_OPERAND, "0x%02X", RAM[pc+1]);
+			break;
+		case ADDMODE_IMPL:
+			snprintf(operand, MAX_OPERAND, "");
+			break;
+		case ADDMODE_IND:
+			snprintf(operand, MAX_OPERAND, "ERROR");
+			break;
+		case ADDMODE_INDX:
+			snprintf(operand, MAX_OPERAND, "RAM[RAM[(0x%02X + X)&0xFF] | RAM[(0x%02X + X) & 0xFF]<<8]", RAM[pc+1], (RAM[pc+1]+1)&0xFF);
+			break;
+		case ADDMODE_INDY:
+//B284 STA ($5F),Y 
+#ifdef LITTLE_ENDIAN
+			if (RAM[pc+1] == 0xFF) {
+				fprintf(out, "Warning: LDA ($FF),Y\n");
+				snprintf(operand, MAX_OPERAND, "RAM[((RAM[0x%02X] | RAM[0x%02X]<<8) + Y)&0xFFFF]", RAM[pc+1], (RAM[pc+1]+1)&0xFF);
+			} else {
+				snprintf(operand, MAX_OPERAND, "RAM[(*(unsigned short*)(&RAM[0x%02X]) + Y)&0xFFFF]", RAM[pc+1]);
+			}
+#else // generic
+			snprintf(operand, MAX_OPERAND, "RAM[((RAM[0x%02X] | RAM[0x%02X]<<8) + Y)&0xFFFF]", RAM[pc+1], (RAM[pc+1]+1)&0xFF);
+#endif
+			break;
+		case ADDMODE_ZP:
+			snprintf(operand, MAX_OPERAND, "RAM[0x%02X]", RAM[pc+1]);
+			break;
+		case ADDMODE_ZPX:
+			snprintf(operand, MAX_OPERAND, "RAM[(0x%02X + X) & 0xFF]", RAM[pc+1]);
+			break;
+		case ADDMODE_ZPY:
+			snprintf(operand, MAX_OPERAND, "RAM[(0x%02X + Y) & 0xFF]", RAM[pc+1]);
+			break;
+	}
+
+//	printf("\naddmode = %i\n", instraddmode[opcode].addmode);
+	switch (instraddmode[opcode].instr) {
+		case INSTR_ADC:
+			/* the xor of the carry into the sign bit and the carry out of the sign bit */
+//			fprintf(out, "temp16 = ((unsigned short)A)+((unsigned short)%s)+((unsigned short)C); SETV((!((A ^ %s) & 0x80) && ((A ^ temp16) & 0x80))); A = temp16; SETSZ(A); SETC(temp16)", operand, operand);
+			fprintf(out, "temp16 = ((unsigned short)A)+((unsigned short)%s)+((unsigned short)C); SETV((!((A ^ %s) & 0x80) && ((A ^ temp16) & 0x80))); A = temp16; SETSZ(A); SETC(temp16)", operand, operand);
+			break;
+		case INSTR_AND:
+			fprintf(out, "A &= %s; SETSZ(A)", operand);
+			break;
+		case INSTR_ASL:
+//			fprintf(out, "temp16 = ((unsigned short)%s)<<1; C = temp16>>8; SETSZ(temp16&0xFF); %s = temp16; SETSZ(temp16&0xFF)", operand, operand);
+			fprintf(out, "temp16 = %s; C = (temp16>>7) & 1; temp16 = temp16 << 1; SETSZ(temp16&0xFF); %s = temp16", operand, operand);
+			break;
+		case INSTR_BCC:
+			fprintf(out, "if (!C) goto %s", operand);
+			break;
+		case INSTR_BCS:
+			fprintf(out, "if (C) goto %s", operand);
+			break;
+		case INSTR_BEQ:
+			fprintf(out, "if (Z) goto %s", operand);
+			break;
+		case INSTR_BIT:
+			fprintf(out, "temp8 = %s; SETSZ(temp8); SETV((temp8>>6)&1)", operand);
+			if (type[pc+1] & TYPE_CODE_TARGET) {	/* this is a "SKP", not a "BIT" */
+				uint16_t next = pc + length[instraddmode[opcode].addmode] + 1;
+				fprintf(out, "; goto l%04X;\n", next);	/* skip the next instruction */
+				type[next] |= TYPE_CODE_TARGET;		/* next instruction need label */
+				step1 = 1;
+				/* TODO: maybe generalize this - it can happen anywhere */
+			}
+			break;
+		case INSTR_BMI:
+			fprintf(out, "if (N) goto %s", operand);
+			break;
+		case INSTR_BNE:
+			fprintf(out, "if (!Z) goto %s", operand);
+			break;
+		case INSTR_BPL:
+			fprintf(out, "if (!N) goto %s", operand);
+			break;
+		case INSTR_BRK:
+			fprintf(out, "printf(\"??? at $%04X\\n\"); return", pc);
+			break;
+		case INSTR_BVC:
+			fprintf(out, "if (!V) goto %s", operand);
+			break;
+		case INSTR_BVS:
+			fprintf(out, "if (V) goto %s", operand);
+			break;
+		case INSTR_CLC:
+			fprintf(out, "C = 0");
+			break;
+		case INSTR_CLD:
+			fprintf(out, "D = 0");
+			break;
+		case INSTR_CLI:
+			fprintf(out, "I = 0");
+			break;
+		case INSTR_CLV:
+			fprintf(out, "V = 0");
+			break;
+// B897 MIST
+		case INSTR_CMP:
+			fprintf(out, "temp16 = ((unsigned short)A) - ((unsigned short)%s); SETNC(temp16); SETSZ(temp16&0xFF)", operand);
+			break;
+		case INSTR_CPX:
+			fprintf(out, "temp16 = ((unsigned short)X) - ((unsigned short)%s); SETNC(temp16); SETSZ(temp16&0xFF)", operand);
+			break;
+		case INSTR_CPY:
+			fprintf(out, "temp16 = ((unsigned short)Y) - ((unsigned short)%s); SETNC(temp16); SETSZ(temp16&0xFF)", operand);
+			break;
+		case INSTR_DEC:
+			fprintf(out, "%s--; SETSZ(%s)", operand, operand);
+			break;
+		case INSTR_DEX:
+			fprintf(out, "X--; SETSZ(X)");
+			break;
+		case INSTR_DEY:
+			fprintf(out, "Y--; SETSZ(Y)");
+			break;
+		case INSTR_EOR:
+			fprintf(out, "A ^= %s; SETSZ(A)", operand);
+			break;
+		case INSTR_INC:
+			fprintf(out, "%s++; SETSZ(%s)", operand, operand);
+			break;
+		case INSTR_INX:
+			fprintf(out, "X++; SETSZ(X)");
+			break;
+		case INSTR_INY:
+			fprintf(out, "Y++; SETSZ(Y)");
+			break;
+		case INSTR_JMP:	 /* special case */
+			if (instraddmode[opcode].addmode == ADDMODE_IND) {
+				fprintf(out, "PC = RAM[0x%04X] | RAM[0x%04X]<<8; goto RTS_SWITCH", RAM[pc+1] | RAM[pc+2]<<8, (RAM[pc+1] | RAM[pc+2]<<8)+1);
+			} else {
+				fprintf(out, "goto l%04X", RAM[pc+1] | RAM[pc+2]<<8);
+			}
+			break;
+		case INSTR_JSR:
+			fprintf(out, "RAM[0x0100+S--] = 0x%02X; ", (pc+2)>>8);
+			fprintf(out, "RAM[0x0100+S--] = 0x%02X; ", (pc+2)&0xFF);
+			fprintf(out, "goto l%04X", RAM[pc+1] | RAM[pc+2]<<8); /* special case */
+			break;
+		case INSTR_LDA:
+			fprintf(out, "A = %s; SETSZ(A)", operand);
+			break;
+		case INSTR_LDX:
+			fprintf(out, "X = %s; SETSZ(X)", operand);
+			break;
+		case INSTR_LDY:
+			fprintf(out, "Y = %s; SETSZ(Y)", operand);
+			break;
+		case INSTR_LSR:
+			fprintf(out, "C = %s&1; temp8 = %s>>1; ; SETSZ(temp8); %s = temp8", operand, operand, operand);
+			break;
+		case INSTR_NOP:
+			break;
+		case INSTR_ORA:
+			fprintf(out, "A |= %s; SETSZ(A)", operand);
+			break;
+		case INSTR_PHA:
+			fprintf(out, "RAM[0x0100+S--] = A", operand);
+			break;
+		case INSTR_PHP:
+			fprintf(out, "temp8 = N << 7 | V << 6 | B << 4 | D << 3 | I << 2 | Z << 1 | C << 0; ");
+			fprintf(out, "RAM[0x0100+S--] = temp8", operand);
+			break;
+		case INSTR_PLA:
+			fprintf(out, "A = RAM[0x0100+(++S)]; SETSZ(A)", operand);
+			break;
+		case INSTR_PLP:
+			fprintf(out, "temp8 = RAM[0x0100+(++S)]; ", operand);
+			fprintf(out, "N = temp8&(1>>7) & 1;");
+			fprintf(out, "V = temp8&(1>>6) & 1;");
+			fprintf(out, "B = temp8&(1>>4) & 1;");
+			fprintf(out, "D = temp8&(1>>3) & 1;");
+			fprintf(out, "I = temp8&(1>>2) & 1;");
+			fprintf(out, "Z = temp8&(1>>1) & 1;");
+			fprintf(out, "C = temp8&(1>>0) & 1");
+			break;
+		case INSTR_ROL:
+			fprintf(out, "temp16 = ((unsigned short)%s)<<1 | C; C = temp16>>8; SETSZ(temp16&0xFF); %s = temp16", operand, operand);
+			break;
+		case INSTR_ROR:
+			fprintf(out, "temp16 = %s | C<<8; C = temp16 & 1; temp16 = temp16 >> 1; SETSZ(temp16&0xFF); %s = temp16", operand, operand, operand);
+			break;
+		case INSTR_RTI:
+			fprintf(out, "printf(\"??? at $%04X\\n\"); return", pc);
+			break;
+		case INSTR_RTS:
+			fprintf(out, "PC = RAM[0x0100+(++S)]; ");
+			fprintf(out, "PC = PC + (RAM[0x0100+(++S)]<<8) + 1; ");
+			fprintf(out, "goto RTS_SWITCH", pc);
+			break;
+		case INSTR_SBC:
+			fprintf(out, "temp16 = (unsigned short)A-(unsigned short)%s-(unsigned short)(1-C); SETV(((A ^ temp16) & 0x80) && ((A ^ %s) & 0x80)); A = temp16; SETSZ(A); SETNC(temp16)", operand, operand);
+			break;
+		case INSTR_SEC:
+			fprintf(out, "C = 1");
+			break;
+		case INSTR_SED:
+			fprintf(out, "printf(\"enabled decimal mode!\\n\"); return", pc);
+			break;
+		case INSTR_SEI:
+			fprintf(out, "I = 1");
+			break;
+		case INSTR_STA:
+			fprintf(out, "%s = A", operand);
+			break;
+		case INSTR_STX:
+			fprintf(out, "%s = X", operand);
+			break;
+		case INSTR_STY:
+			fprintf(out, "%s = Y", operand);
+			break;
+		case INSTR_TAX:
+			fprintf(out, "X = A; SETSZ(X)");
+			break;
+		case INSTR_TAY:
+			fprintf(out, "Y = A; SETSZ(Y)");
+			break;
+		case INSTR_TSX:
+			fprintf(out, "X = S; SETSZ(X)");
+			break;
+		case INSTR_TXA:
+			fprintf(out, "A = X; SETSZ(A)");
+			break;
+		case INSTR_TXS:
+			fprintf(out, "S = X");
+			break;
+		case INSTR_TYA:
+			fprintf(out, "A = Y; SETSZ(A)");
+			break;
+		case INSTR_XXX:
+			fprintf(out, "printf(\"XXX at $%04X\\n\"); return", pc);
+			break;
+	}
+	fprintf(out, ";");
+	return step1;
+}
+
+void disasm(FILE *out, uint16_t pc) {
+	uint16_t opcode;
+	int i;
+	char *l;
+
+	opcode = RAM[pc];
+	fprintf(out, ".,%04X ", pc);
+	for (i=0; i<=length[instraddmode[opcode].addmode]; i++) {
+		fprintf(out, "%02X ", RAM[pc+i]);
+	}
+	for (i=0; i<=5-3*length[instraddmode[opcode].addmode]; i++) {
+		fprintf(out, " ");
+	}
+	l = disasm_instr(pc);
+	fprintf(out, "%s\n", l);
+}
+
+int recompile(FILE *out, uint16_t pc) {
+	uint16_t opcode;
+	int i;
+	char *l;
+	int step1;
+
+	opcode = RAM[pc];
+//	fprintf(out, ".,%04X ", pc);
+//	for (i=0; i<=length[instraddmode[opcode].addmode]; i++) {
+//		fprintf(out, "%02X ", RAM[pc+i]);
+//	}
+//	for (i=0; i<=5-3*length[instraddmode[opcode].addmode]; i++) {
+//		fprintf(out, " ");
+//	}
+	l = disasm_instr(pc);
+	fprintf(out, "/* %-12s */ ", l);
+#if DIVIDE
+	fprintf(out, "asm(\"nop\"); ");
+//	fprintf(out, "asm(\"%04X %-12s\");\n", pc, l);
+#endif
+#if DEBUG
+	fprintf(out, "PRDEBUG(\"%04X %-12s\"); ", pc, l);
+#endif
+	step1 = recompile_instr(out, pc);
+//fprintf(out, "/* before1 = %04x*/\n", pc);
+	fprintf(out, "\n");
+	return step1;
+}
+
+void tag_text_data_recursive(FILE *out, uint16_t pc, int level) {
+	uint8_t opcode;
+	uint16_t dest;
+	int i;
+	int type_old;
+
+	type_old = type[pc];
+//	fprintf(out, "setting type[%04X]\n", pc);
+	type[pc] |= TYPE_CODE_TARGET;
+
+	if (type_old & TYPE_CODE) {
+		return;
+	}
+
+	while(1) {
+#ifdef VERBOSE
+		for (i=0; i<level; i++)
+			fprintf(out, " ");
+		disasm(pc);
+#endif
+//fprintf(out, "type[%04X] = %d\n", pc, type[pc]);
+//fprintf(out, "type[0xA644] = %d\n", type[0xA644]);
+		if (type[pc] & TYPE_CODE) {
+			return;
+		}
+		type[pc] |= TYPE_CODE;
+
+#ifdef DEBUG
+		if (pc >= 0xE4B7)
+			fprintf(out, "// Warning: KERNAL call to $%04X\n", pc);
+#endif
+
+		opcode = RAM[pc];
+		switch (instraddmode[opcode].instr) {
+			case INSTR_BRK:
+				fprintf(out, "// Warning: BRK at $%04X\n", pc);
+				return;
+			case INSTR_RTS:
+				return;
+			case INSTR_JMP:
+				switch (instraddmode[opcode].addmode) {
+					case ADDMODE_ABS:
+						tag_text_data_recursive(out, RAM[pc+1] | RAM[pc+2]<<8, level+1);
+						return;
+					case ADDMODE_IND:
+						dest = RAM[pc+1] | RAM[pc+2]<<8, pc;
+#ifdef DEBUG
+						fprintf(out, "// Warning: JMP ($%04X) at $%04X\n", RAM[pc+1] | RAM[pc+2]<<8, pc);
+#endif
+						if (!(dest&1) && (dest>=0x300) && (dest<=0x30A)) {
+							/* CBM BASIC vector table */
+#ifdef DEBUG
+							fprintf(out, "//  Using CBM BASIC vector table...\n");
+#endif
+							dest = dest + 0xE447 - 0x300;
+							tag_text_data_recursive(out, RAM[dest] | RAM[dest+1]<<8, level+1);
+						}
+						return;
+					default:
+						printf("Table error #1\n");
+						exit(1);
+				}
+				break;
+			case INSTR_JSR:
+//				fprintf(out, "setting type[%04X] (previously %d)\n", pc+3, type[pc+3]);
+				type[pc+3] |= TYPE_AFTER_JSR; /* next instruction needs a label */
+				tag_text_data_recursive(out, RAM[pc+1] | RAM[pc+2]<<8, level+1);
+				break;
+			case INSTR_BCC:
+			case INSTR_BCS:
+			case INSTR_BEQ:
+			case INSTR_BMI:
+			case INSTR_BNE:
+			case INSTR_BPL:
+			case INSTR_BVC:
+			case INSTR_BVS:
+//				fprintf(out, "branch!\n");
+				tag_text_data_recursive(out, pc+2 + (int8_t)RAM[pc+1], level+1);
+				break;
+		}
+		pc += length[instraddmode[opcode].addmode] + 1;
+	}
+}
+
+void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint16_t end, uint16_t entry) {
+	int step1;
+	uint16_t pc = start;
+
+	if (!entries) entries="";
+
+	fprintf(out, "#include <stdio.h>\n");
+	fprintf(out, "#include <string.h>\n");
+#ifdef DEBUG
+	fprintf(out, "#define DEBUG 1\n", pc);
+#endif
+#ifdef SHOW_RECOMPILING
+	fprintf(out, "#define SHOW_RECOMPILING 1\n", pc);
+#endif
+	fprintf(out, "int main(int argc, char **argv) {\n");
+	fprintf(out, "unsigned char A, X, Y, S = 0xFF;\n");
+	fprintf(out, "unsigned short PC;\n");
+	fprintf(out, "unsigned char RAM[65536];\n");
+	fprintf(out, "int N=0, V=0, B=0, D=0, I=0, Z=0, C=0;\n");
+	fprintf(out, "unsigned char temp8;\n");
+	fprintf(out, "unsigned short temp16;\n");
+	fprintf(out, "FILE *f;\n");
+	fprintf(out, "char *romname =\"%s\";\n", romname);
+	fprintf(out, "char *entries = \"%s\";\n", entries);
+	fprintf(out, "\n");
+	fprintf(out, "f = fopen(romname, \"r\");\n");
+	fprintf(out, "fread(&RAM[0x%x], 65536-0x%x, 1, f);\n", start, start);
+	fprintf(out, "goto load_state;\n", entry);
+	fprintf(out, "start:\n", entry);
+	fprintf(out, "goto l%04X;\n", entry);
+	fprintf(out, "#include \"kernal.h\"\n");
+
+	while (pc<end) {
+//fprintf(out, "/*l%04X: %d*/ \n", pc, type[pc]);
+		if (type[pc] & (TYPE_CODE_TARGET|TYPE_AFTER_JSR)) {
+			fprintf(out, "l%04X:\n", pc);
+		}
+		if (type[pc] & (TYPE_CODE|TYPE_CODE_TARGET)) {
+			step1 = recompile(out, pc);
+			if (step1)
+				pc++;
+			else
+				pc = pc + length[instraddmode[RAM[pc]].addmode] + 1;
+		} else {
+			pc++;
+		}
+	}
+
+/* jump table */
+	fprintf(out, "RTS_SWITCH:\n");
+	fprintf(out, "switch (PC) {\n");
+	for (pc = start; pc<end; pc++) {
+		if (type[pc] & (TYPE_AFTER_JSR)) {
+			fprintf(out, "case 0x%04X:\n", pc);
+#ifdef DEBUG
+			fprintf(out, "printf(\"goto l%04X\\n\");\n", pc);
+#endif
+			fprintf(out, " goto l%04X;\n", pc);
+		}
+	}
+	fprintf(out, "default:\n", pc);
+	fprintf(out, "goto not_found;");
+	fprintf(out, "}\n");
+	
+	fprintf(out, "return 0;\n");
+	fprintf(out, "}\n");
+}
+
+void tag_text_data(FILE *out, uint16_t pc) {
+	uint8_t opcode;
+	int i;
+
+#if VERBOSE
+	fprintf(out, "starting tagging at $%02X\n", pc);
+#endif
+	type[pc] |= TYPE_AFTER_JSR; /* add RTS_TABLE entry */
+	tag_text_data_recursive(out, pc, 0);
+}
+
+void tag_extra_entries(FILE *out, char *entries) {
+	uint16_t entry;
+	char* old_entries;
+
+	while (entries && *entries) {
+	/* just one for now */
+
+		if (entries[0] == ',')
+			entries++;
+		if (!entries[0])
+			break;
+//printf("before: entries= %x\n", entries);
+		old_entries = entries;
+		entry = strtol(entries, &entries, 0);
+		if (entries == old_entries) {
+			printf("Error parsing entries!\n");
+			exit(3);
+		}
+//printf("after:  entries= %x\n", entries);
+//printf("entry= %x\n", entry);
+		tag_text_data(out, entry);
+	}
+}
+
+int main(int argc, char **argv) {
+	FILE *f, *out;
+	uint16_t start;
+	int i, rv, pid;
+	char *romname;
+	char *cname = "rec.c";
+	char *execname = "./rec";
+	char *entries;
+
+	if (argc<2) {
+		printf("Usage: %s romname [entries]\n", argv[0]);
+		return 0;
+	}
+
+	romname = argv[1];
+//printf("argc = %d\n", argc);
+	if (argc>=3)
+		entries = argv[2];
+	else
+		entries = 0;
+//printf("entries = %s\n", entries);
+	
+	if (!(f = fopen(romname, "r"))) {
+		printf("Could not open %s!\n", argv[1]);
+		return 2;
+	}
+//	start = ((unsigned char)fgetc(f)) | ((unsigned char)fgetc(f))<<8;
+//	printf("start: 0x%04x\n", start);
+	start = 0xA000;
+	fread(&RAM[start], 65536-start, 1, f);
+	fclose(f);
+
+	if (!(out = fopen(cname, "w"))) {
+		printf("Could not open %s!\n", cname);
+		return 2;
+	}
+
+#ifdef SHOW_RECOMPILING
+	printf("recompiling...\n");
+	fflush (stdout);
+#endif
+
+	for (i=0; i<sizeof(type); i++)
+		type[i] = TYPE_UNKNOWN;
+
+	tag_text_data(out, 0xE394);
+
+#if 0
+// HACK
+	for (i=0; i<sizeof(cbmbasic_funcptr)/sizeof(uint16_t); i++) {
+		tag_text_data(out, cbmbasic_funcptr[i]);
+	}
+#endif
+
+/* tag extra entry points from the command line */
+	tag_extra_entries(out, entries);
+
+/*
+	printf("----------------------------------------------------------------------");
+	printf("----------------------------------------------------------------------");
+	printf("----------------------------------------------------------------------");
+	printf("----------------------------------------------------------------------");
+	printf("----------------------------------------------------------------------");
+	printf("----------------------------------------------------------------------");
+	printf("----------------------------------------------------------------------");
+	printf("----------------------------------------------------------------------");
+	printf("----------------------------------------------------------------------");
+	printf("----------------------------------------------------------------------");
+*/
+
+	recompile_all(out, romname, entries, 0xA000, 0xE4B7, 0xE394);
+	fclose(out);
+
+//	printf("done\n");
+
+/* now invoke cc */
+//	printf("compiling...");
+//	fflush (stdout);
+	if (!(pid = fork())) {
+		char ccname[] = "/usr/bin/cc";
+		char* a[] = { ccname, "-o", execname, cname, 0};
+		execve(ccname, a, 0);
+	} else {
+		waitpid(pid, &rv, 0);
+	}
+	if (rv)
+		exit(rv);
+
+#ifdef SHOW_RECOMPILING
+	printf("done\n");
+	fflush (stdout);
+#endif
+
+	for (i=0; i<14; i++)
+		putchar(8);
+
+/* execute executable */
+	char* a[] = { execname, 0};
+	execve(execname, a, 0);
+
+	return 0;
+}
+
+/* TODO
+ * compare performance 7 int flags vs. 7 flags in a byte -> two sets of macros
+ * have a special RTS table for every RTS - with a fallback to the generic one
+ * registers/RAM in local/global variables
+ * at every RTS, add code to lookup the 6502 return address in a table and
+   compare it with __builtin_return(0). if the same, use RTS -- save on JSR side
+ * ...
+ */
