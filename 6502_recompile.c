@@ -175,12 +175,26 @@ arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_lin
 			}
 			break;
 		case INSTR_JSR:
+#if 1
+		new_pc = RAM[pc+1] | RAM[pc+2]<<8;
+		{
+			int is_func = 0;
+			for (int i = 0; i < num_funcs; i++) {
+				if (new_pc == func_start[i]) {
+					is_func = 1;
+					break;
+				}
+			}
+			if (is_func) {
+				snprintf(line, max_line, "func_%04X()", new_pc);
+				break;
+			}
+#endif
 #ifdef LITTLE_ENDIAN
 			snprintf(line, max_line, "*(unsigned short*)(&RAM[0x0100+S-1]) = 0x%04X; S -= 2;", pc+2); /* TODO could write outside of stack */
 #else
 			snprintf(line, max_line, "RAM[0x0100+S--] = 0x%02X; RAM[0x0100+S--] = 0x%02X; ", (pc+2)>>8, (pc+2)&0xFF);
 #endif
-			new_pc = RAM[pc+1] | RAM[pc+2]<<8;
 #ifdef DEBUG_SYMBOLS
 			snprintf(line+strlen(line), max_line-strlen(line), ";printf(\"\\nJSR $%04X ; %s\\n\");", new_pc, app_get_symbol(new_pc));
 #endif
@@ -194,24 +208,13 @@ arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_lin
 			snprintf(line+strlen(line), max_line-strlen(line), "lr[S] = &&l%04X;", pc+3);
 			snprintf(line+strlen(line), max_line-strlen(line), "lr_source[S] = 0x%04X;", pc+3);
 #endif
-#if 1
-			int is_func = 0;
-			for (int i = 0; i < num_funcs; i++) {
-				if (new_pc == func_start[i]) {
-					is_func = 1;
-					break;
-				}
-			}
-			if (is_func) {
-				snprintf(line+strlen(line), max_line-strlen(line), "func_%04X()", new_pc);
-			} else
-#endif
 			if (new_pc>=start) {
 				snprintf(line+strlen(line), max_line-strlen(line), "goto l%04X", new_pc);
 			} else {
 				snprintf(line+strlen(line), max_line-strlen(line), "PC = 0x%04X; goto JUMP_DISPATCH", new_pc);
 			}
 			break;
+		}
 		case INSTR_LDA:
 			snprintf(line, max_line, "A = %s; SETSZ(A)", operand);
 #ifdef DEBUG_SYMBOLS
@@ -267,15 +270,15 @@ arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_lin
 			snprintf(line, max_line, "printf(\"??? at $%04X\\n\"); return", pc);
 			break;
 		case INSTR_RTS:
+			if (func_mode) {
+				snprintf(line+strlen(line), max_line-strlen(line), "return");
+				break;
+			}
 #ifdef LITTLE_ENDIAN
 			snprintf(line, max_line, "PC = *(unsigned short*)(&RAM[0x0100+S+1]) + 1; S += 2;"); /* TODO could read outside of stack */
 #else
 			snprintf(line, max_line, "PC = RAM[0x0100+(++S)]; PC = PC + (RAM[0x0100+(++S)]<<8) + 1;");
 #endif
-			if (func_mode) {
-				snprintf(line+strlen(line), max_line-strlen(line), "return;");
-				break;
-			}
 #ifdef CALLER_STACK
 			snprintf(line+strlen(line), max_line-strlen(line), "if (likely(PC==lr_source[(S-2)&0xFF])) goto *lr[(S-2)&0xFF];");
 #endif

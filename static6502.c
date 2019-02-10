@@ -199,7 +199,7 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 	fprintf(out, "unsigned short lr_source[256];\n");
 #endif
 	for (int i = 0; i < num_funcs; i++) {
-		fprintf(out, "void func_%04X(void);\n", func_start[i]);
+		fprintf(out, "static void func_%04X(void);\n", func_start[i]);
 	}
 	fprintf(out, "int main(int argc, char **argv) {\n");
 #ifndef EMBED_ROM
@@ -297,7 +297,7 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 #if 1
 	for (int i = 0; i < num_funcs; i++) {
 		pc = func_start[i];
-		fprintf(out, "void func_%04X() {\n", pc);
+		fprintf(out, "static void func_%04X() {\n", pc);
 
 		while (pc < func_end[i]) {
 			if (tagging_type[pc] & (TYPE_CODE_TARGET|TYPE_AFTER_CALL)) {
