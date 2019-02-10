@@ -64,7 +64,7 @@ void disasm_instr(FILE *out, uint16_t pc) {
 	fprintf(out, "%-12s", disassembly_line);
 }
 
-int recompile_instr(FILE *out, uint16_t start, uint16_t pc, unsigned short *func_start, unsigned short *func_end, int num_funcs) {
+int recompile_instr(FILE *out, uint16_t start, uint16_t pc, unsigned short *func_start, unsigned short *func_end, int num_funcs, int func_mode) {
 	char disassembly_line[MAX_DISASSEMBLY_LINE];
 	char recompilation_line[MAX_RECOMPILATION_LINE];
 	int bytes, i;
@@ -92,7 +92,7 @@ int recompile_instr(FILE *out, uint16_t start, uint16_t pc, unsigned short *func
 	optimized_dispatch = has_optimized_dispatch(RAM, pc);
 #endif
 
-	bytes = arch_recompile_instr(RAM, pc, recompilation_line, sizeof(recompilation_line), start, optimized_dispatch, func_start, func_end, num_funcs);
+	bytes = arch_recompile_instr(RAM, pc, recompilation_line, sizeof(recompilation_line), start, optimized_dispatch, func_start, func_end, num_funcs, func_mode);
 	fprintf(out, "%s\n", recompilation_line);
 
 	if ((bytes) && (tagging_type[pc+1] & TYPE_CODE_TARGET)) {	/* someone branches into the middle of this instruction */
@@ -189,7 +189,6 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 #ifdef CALLER_STACK
 	fprintf(out, "#define CALLER_STACK 1\n");
 #endif
-	fprintf(out, "int main(int argc, char **argv) {\n");
 	/* TODO: this is 6502-specific */
 	fprintf(out, "unsigned char A, X, Y, S = 0xFF;\n");
 	fprintf(out, "unsigned short PC;\n");
@@ -199,6 +198,10 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 	fprintf(out, "void *lr[256];\n");
 	fprintf(out, "unsigned short lr_source[256];\n");
 #endif
+	for (int i = 0; i < num_funcs; i++) {
+		fprintf(out, "void func_%04X(void);\n", func_start[i]);
+	}
+	fprintf(out, "int main(int argc, char **argv) {\n");
 #ifndef EMBED_ROM
 	fprintf(out, "FILE *f;\n");
 #endif
@@ -258,7 +261,7 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 			fprintf(out, "l%04X:\n", pc);
 		}
 		if (tagging_type[pc] & (TYPE_CODE)) {
-			bytes = recompile_instr(out, start, pc, func_start, func_end, num_funcs);
+			bytes = recompile_instr(out, start, pc, func_start, func_end, num_funcs, 0);
 			pc = pc + bytes;
 		} else {
 			pc++;
@@ -290,6 +293,28 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 	
 	fprintf(out, "return 0;\n");
 	fprintf(out, "}\n");
+
+#if 1
+	for (int i = 0; i < num_funcs; i++) {
+		pc = func_start[i];
+		fprintf(out, "void func_%04X() {\n", pc);
+
+		while (pc < func_end[i]) {
+			if (tagging_type[pc] & (TYPE_CODE_TARGET|TYPE_AFTER_CALL)) {
+				fprintf(out, "l%04X:\n", pc);
+			}
+			if (tagging_type[pc] & (TYPE_CODE)) {
+				bytes = recompile_instr(out, start, pc, func_start, func_end, num_funcs, 1);
+				pc = pc + bytes;
+			} else {
+				pc++;
+			}
+		}
+		fprintf(out, "}\n");
+	}
+
+
+#endif
 }
 
 void tag(uint16_t start, uint16_t end, uint16_t pc) {

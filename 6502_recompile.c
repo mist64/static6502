@@ -8,7 +8,7 @@
 //#define IGNORE_INDY_WRAPAROUND 1
 
 int
-arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_line, uint16_t start, int optimized_dispatch, unsigned short *func_start, unsigned short *func_end, int num_funcs) {
+arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_line, uint16_t start, int optimized_dispatch, unsigned short *func_start, unsigned short *func_end, int num_funcs, int func_mode) {
 	uint8_t opcode = RAM[pc];
 	#define MAX_OPERAND 80
 	char operand[MAX_OPERAND];
@@ -272,6 +272,10 @@ arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_lin
 #else
 			snprintf(line, max_line, "PC = RAM[0x0100+(++S)]; PC = PC + (RAM[0x0100+(++S)]<<8) + 1;");
 #endif
+			if (func_mode) {
+				snprintf(line+strlen(line), max_line-strlen(line), "return;");
+				break;
+			}
 #ifdef CALLER_STACK
 			snprintf(line+strlen(line), max_line-strlen(line), "if (likely(PC==lr_source[(S-2)&0xFF])) goto *lr[(S-2)&0xFF];");
 #endif
