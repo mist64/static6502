@@ -64,7 +64,7 @@ void disasm_instr(FILE *out, uint16_t pc) {
 	fprintf(out, "%-12s", disassembly_line);
 }
 
-int recompile_instr(FILE *out, uint16_t start, uint16_t pc) {
+int recompile_instr(FILE *out, uint16_t start, uint16_t pc, unsigned short *func_start, unsigned short *func_end, int num_funcs) {
 	char disassembly_line[MAX_DISASSEMBLY_LINE];
 	char recompilation_line[MAX_RECOMPILATION_LINE];
 	int bytes, i;
@@ -82,14 +82,17 @@ int recompile_instr(FILE *out, uint16_t start, uint16_t pc) {
 #endif
 #endif
 #if DIVIDE
-	fprintf(out, "asm(\"nop\"); ");
+	fprintf(out, "asm(\"##");
+	disasm_instr(out, pc);
+	fprintf(out, "\"); ");
+//	fprintf(out, "asm(\"nop ## %\"); ");
 #endif
 
 #ifdef RET_OPTIMIZATION
 	optimized_dispatch = has_optimized_dispatch(RAM, pc);
 #endif
 
-	bytes = arch_recompile_instr(RAM, pc, recompilation_line, sizeof(recompilation_line), start, optimized_dispatch);
+	bytes = arch_recompile_instr(RAM, pc, recompilation_line, sizeof(recompilation_line), start, optimized_dispatch, func_start, func_end, num_funcs);
 	fprintf(out, "%s\n", recompilation_line);
 
 	if ((bytes) && (tagging_type[pc+1] & TYPE_CODE_TARGET)) {	/* someone branches into the middle of this instruction */
@@ -159,7 +162,7 @@ void tag_recursive(uint16_t start, uint16_t end, uint16_t pc, int level) {
 	}
 }
 
-void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint16_t end, uint16_t entry) {
+void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint16_t end, uint16_t entry, unsigned short *func_start, unsigned short *func_end, int num_funcs) {
 	int bytes;
 	uint16_t pc;
 
@@ -244,11 +247,18 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 /* recompilation! */
 	pc = start;
 	while (pc<end) {
+		int is_func = 0;
+		for (int i = 0; i < num_funcs; i++) {
+			if (pc >= func_start[i] && pc < func_end[i]) {
+				pc = func_end[i];
+			}
+		}
+
 		if (tagging_type[pc] & (TYPE_CODE_TARGET|TYPE_AFTER_CALL)) {
 			fprintf(out, "l%04X:\n", pc);
 		}
 		if (tagging_type[pc] & (TYPE_CODE)) {
-			bytes = recompile_instr(out, start, pc);
+			bytes = recompile_instr(out, start, pc, func_start, func_end, num_funcs);
 			pc = pc + bytes;
 		} else {
 			pc++;
@@ -340,7 +350,7 @@ int main(int argc, char **argv) {
 
 /* load code */
 	load_code(romname, RAM, &start, &end, &entry);
-	
+
 	if (!(out = fopen(cname, "w"))) {
 		printf("Could not open %s!\n", cname);
 		return 2;
@@ -362,7 +372,13 @@ int main(int argc, char **argv) {
 	find_rets(RAM, start, end);
 #endif
 
-	recompile_all(out, romname, entries, start, end, entry);
+	unsigned short func_start[1];
+	unsigned short func_end[1];
+	func_start[0] = 0xe453;
+	func_end[0] = 0xe45f;
+	int num_funcs = 1;
+
+	recompile_all(out, romname, entries, start, end, entry, func_start, func_end, num_funcs);
 	fclose(out);
 
 

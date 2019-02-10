@@ -8,7 +8,7 @@
 //#define IGNORE_INDY_WRAPAROUND 1
 
 int
-arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_line, uint16_t start, int optimized_dispatch) {
+arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_line, uint16_t start, int optimized_dispatch, unsigned short *func_start, unsigned short *func_end, int num_funcs) {
 	uint8_t opcode = RAM[pc];
 	#define MAX_OPERAND 80
 	char operand[MAX_OPERAND];
@@ -193,6 +193,18 @@ arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_lin
 #ifdef CALLER_STACK
 			snprintf(line+strlen(line), max_line-strlen(line), "lr[S] = &&l%04X;", pc+3);
 			snprintf(line+strlen(line), max_line-strlen(line), "lr_source[S] = 0x%04X;", pc+3);
+#endif
+#if 1
+			int is_func = 0;
+			for (int i = 0; i < num_funcs; i++) {
+				if (new_pc == func_start[i]) {
+					is_func = 1;
+					break;
+				}
+			}
+			if (is_func) {
+				snprintf(line+strlen(line), max_line-strlen(line), "func_%04X()", new_pc);
+			} else
 #endif
 			if (new_pc>=start) {
 				snprintf(line+strlen(line), max_line-strlen(line), "goto l%04X", new_pc);

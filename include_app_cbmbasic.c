@@ -54,7 +54,7 @@ lFF99:
 #if DEBUG /* CBMBASIC doesn't do this */
 	if (!C) {
 		printf("UNIMPL: set top of RAM");
-		return;
+		return 0;
 	}
 #endif
 	X = RAM_TOP&0xFF;
@@ -68,7 +68,7 @@ lFF9C:
 #if DEBUG /* CBMBASIC doesn't do this */
 	if (!C) {
 		printf("UNIMPL: set bot of RAM");
-		return;
+		return 0;
 	}
 #endif
 	X = RAM_BOT&0xFF;
@@ -104,28 +104,28 @@ lFFBD:
 lFFC0:
 {
 		printf("UNIMPL: OPEN\n");
-		return;
+		return 0;
 }
 
 /* CLOSE */
 lFFC3:
 {
 		printf("UNIMPL: CLOSE\n");
-		return;
+		return 0;
 }
 
 /* CHKIN */
 lFFC6:
 {
 		printf("UNIMPL: CHKIN\n");
-		return;
+		return 0;
 }
 
 /* CHKOUT */
 lFFC9:
 {
 		printf("UNIMPL: CHKOUT\n");
-		return;
+		return 0;
 }
 
 /* CLRCHN */
@@ -191,7 +191,7 @@ lFFD5:
 
 		if (A) {
 			printf("UNIMPL: VERIFY\n");
-			return;
+			return 0;
 		}
 		if (!kernal_filename_len) {
 			C = 1;
@@ -346,14 +346,14 @@ lFFD8:
 lFFDB:
 {
 		printf("UNIMPL: SETTIM\n");
-		return;
+		return 0;
 }
 
 /* RDTIM */
 lFFDE:
 {
 		printf("UNIMPL: RDTIM\n");
-		return;
+		return 0;
 }
 
 /* STOP */
@@ -388,7 +388,7 @@ lFFF0:
 lFFF3:
 {
 		printf("UNIMPL: IOBASE\n");
-		return;
+		return 0;
 }
 
 /*
