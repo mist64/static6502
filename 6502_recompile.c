@@ -249,22 +249,22 @@ arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_lin
 			snprintf(line, max_line, "A |= %s; SETSZ(A)", operand);
 			break;
 		case INSTR_PHA:
-			snprintf(line, max_line, "RAM[0x0100+S--] = A", operand);
+			snprintf(line, max_line, "RAM[0x0100+S--] = A");
 			break;
 		case INSTR_PHP:
-			snprintf(line, max_line, "{ unsigned char temp8 = N << 7 | V << 6 | B << 4 | D << 3 | I << 2 | Z << 1 | C << 0; RAM[0x0100+S--] = temp8; }", operand);
+			snprintf(line, max_line, "{ unsigned char temp8 = N << 7 | V << 6 | B << 4 | D << 3 | I << 2 | Z << 1 | C << 0; RAM[0x0100+S--] = temp8; }");
 			break;
 		case INSTR_PLA:
-			snprintf(line, max_line, "A = RAM[0x0100+(++S)]; SETSZ(A)", operand);
+			snprintf(line, max_line, "A = RAM[0x0100+(++S)]; SETSZ(A)");
 			break;
 		case INSTR_PLP:
-			snprintf(line, max_line, "{ unsigned char temp8 = RAM[0x0100+(++S)]; N = (temp8>>7) & 1; V = (temp8>>6) & 1; B = (temp8>>4) & 1; D = (temp8>>3) & 1; I = (temp8>>2) & 1; Z = (temp8>>1) & 1; C = (temp8>>0) & 1; }", operand);
+			snprintf(line, max_line, "{ unsigned char temp8 = RAM[0x0100+(++S)]; N = (temp8>>7) & 1; V = (temp8>>6) & 1; B = (temp8>>4) & 1; D = (temp8>>3) & 1; I = (temp8>>2) & 1; Z = (temp8>>1) & 1; C = (temp8>>0) & 1; }");
 			break;
 		case INSTR_ROL:
 			snprintf(line, max_line, "{ unsigned short temp16 = ((unsigned short)%s)<<1 | C; C = temp16>>8; SETSZ(temp16&0xFF); %s = temp16; }", operand, operand);
 			break;
 		case INSTR_ROR:
-			snprintf(line, max_line, "{ unsigned short temp16 = %s | C<<8; C = temp16 & 1; temp16 = temp16 >> 1; SETSZ(temp16&0xFF); %s = temp16; }", operand, operand, operand);
+			snprintf(line, max_line, "{ unsigned short temp16 = %s | C<<8; C = temp16 & 1; temp16 = temp16 >> 1; SETSZ(temp16&0xFF); %s = temp16; }", operand, operand);
 			break;
 		case INSTR_RTI:
 			snprintf(line, max_line, "printf(\"??? at $%04X\\n\"); return", pc);
@@ -296,7 +296,7 @@ arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_lin
 			snprintf(line, max_line, "C = 1");
 			break;
 		case INSTR_SED:
-			snprintf(line, max_line, "printf(\"enabled decimal mode!\\n\"); return", pc);
+			snprintf(line, max_line, "printf(\"enabled decimal mode!\\n\"); return");
 			break;
 		case INSTR_SEI:
 			snprintf(line, max_line, "I = 1");

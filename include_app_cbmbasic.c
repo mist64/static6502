@@ -20,6 +20,7 @@ int kernal_quote = 0;
 
 #include <dirent.h>
 #include <sys/stat.h>
+char *getcwd(unsigned char *buf, size_t size);
 
 app_not_found:
 /* maybe it's CHRGET/CHRGOT */
@@ -215,7 +216,7 @@ lFFD5:
 			for (i=0; i<16; i++)
 				RAM[memp+i] = ' ';
 			getcwd(&RAM[memp], 256);
-			memp += strlen(&RAM[memp]); /* only 16 on COMMODORE DOS */
+			memp += strlen((char *)&RAM[memp]); /* only 16 on COMMODORE DOS */
 			RAM[memp++] = '"';
 			RAM[memp++] = ' ';
 			RAM[memp++] = '0';
@@ -229,7 +230,7 @@ lFFD5:
 			RAM[old_memp+1] = (memp) >> 8;
 			
 			dirp = opendir(".");
-			while (dp = readdir(dirp)) {
+			while ((dp = readdir(dirp))) {
 				stat(dp->d_name, &st);
 				file_size = (st.st_size + 253)/254;
 				if (file_size>0xFFFF)
@@ -283,8 +284,8 @@ for (i=0; i<255; i++) {
 
 		savedbyte = RAM[kernal_filename+kernal_filename_len]; /* TODO possible overflow */
 		RAM[kernal_filename+kernal_filename_len] = 0;
-		f = fopen((signed char*)&RAM[kernal_filename], "r");
-		RAM[kernal_filename+kernal_filename_len];
+		f = fopen((const char*)&RAM[kernal_filename], "r");
+		//RAM[kernal_filename+kernal_filename_len];
 		if (!f) {
 			C = 1;
 			A = kernal_status = KERN_ERR_FILE_NOT_FOUND;
@@ -326,8 +327,8 @@ lFFD8:
 		}
 		savedbyte = RAM[kernal_filename+kernal_filename_len]; /* TODO possible overflow */
 		RAM[kernal_filename+kernal_filename_len] = 0;
-		f = fopen((signed char*)&RAM[kernal_filename], "w"); /* overwrite - these are not the COMMODORE DOS semantics! */
-		RAM[kernal_filename+kernal_filename_len];
+		f = fopen((const char*)&RAM[kernal_filename], "w"); /* overwrite - these are not the COMMODORE DOS semantics! */
+		//RAM[kernal_filename+kernal_filename_len];
 		if (!f) {
 			C = 1;
 			A = kernal_status = KERN_ERR_FILE_NOT_FOUND;
@@ -397,7 +398,7 @@ lFFF3:
  * code in the zero page. This cannot be done with
  * static recompilation, so here is a reimplementation
  * of these functions in C.
-/*
+ *
 0073   E6 7A      INC $7A
 0075   D0 02      BNE $0079
 0077   E6 7B      INC $7B

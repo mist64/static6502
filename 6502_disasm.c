@@ -5,19 +5,19 @@
 #include "6502_isa.h"
 
 char *addmode_template[] = {
-	[ADDMODE_ABS]	"$%04X",
-	[ADDMODE_ABSX]	"$%04X,X",
-	[ADDMODE_ABSY]	"$%04X,Y",
-	[ADDMODE_ACC]	"A",
-	[ADDMODE_BRA]	"$%02X",
-	[ADDMODE_IMM]	"#$%02X",
-	[ADDMODE_IMPL]	"",
-	[ADDMODE_IND]	"($%04X)",
-	[ADDMODE_INDX]	"($%02X,X)",
-	[ADDMODE_INDY]	"($%02X),Y",
-	[ADDMODE_ZP]	"$%02X",
-	[ADDMODE_ZPX]	"$%02X,X",
-	[ADDMODE_ZPY]	"$%02X,Y"
+	[ADDMODE_ABS]	= "$%04X",
+	[ADDMODE_ABSX]	= "$%04X,X",
+	[ADDMODE_ABSY]	= "$%04X,Y",
+	[ADDMODE_ACC]	= "A",
+	[ADDMODE_BRA]	= "$%02X",
+	[ADDMODE_IMM]	= "#$%02X",
+	[ADDMODE_IMPL]	= "",
+	[ADDMODE_IND]	= "($%04X)",
+	[ADDMODE_INDX]	= "($%02X,X)",
+	[ADDMODE_INDY]	= "($%02X),Y",
+	[ADDMODE_ZP]	= "$%02X",
+	[ADDMODE_ZPX]	= "$%02X,X",
+	[ADDMODE_ZPY]	= "$%02X,Y"
 };
 
 int

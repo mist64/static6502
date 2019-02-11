@@ -76,12 +76,12 @@ enum {
 	ADDMODE_ZPY
 };
 
-unsigned char length[13];
-char *mnemo[57];
+extern unsigned char length[13];
+extern char *mnemo[57];
 
 typedef struct {
 	unsigned char instr;
 	unsigned char addmode;
 } instraddmode_t;
 
-instraddmode_t instraddmode[256];
+extern instraddmode_t instraddmode[256];

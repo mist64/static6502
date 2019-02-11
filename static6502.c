@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /*
  6502 static recompiler
@@ -36,6 +37,7 @@
 #include "tag.h"
 
 /* CPU specific headers */
+#include "6502_tag.h"
 #include "6502_isa.h"
 #include "6502_disasm.h"
 #include "6502_recompile.h"
@@ -65,9 +67,8 @@ void disasm_instr(FILE *out, uint16_t pc) {
 }
 
 int recompile_instr(FILE *out, uint16_t start, uint16_t pc, unsigned short *func_start, unsigned short *func_end, int num_funcs, int func_mode) {
-	char disassembly_line[MAX_DISASSEMBLY_LINE];
 	char recompilation_line[MAX_RECOMPILATION_LINE];
-	int bytes, i;
+	int bytes;
 	int optimized_dispatch = 0;
 
 #if DEBUG
@@ -106,8 +107,6 @@ int recompile_instr(FILE *out, uint16_t start, uint16_t pc, unsigned short *func
 }
 
 void tag_recursive(uint16_t start, uint16_t end, uint16_t pc, int level) {
-	uint16_t dest;
-	int i;
 	int bytes;
 	int flow_type;
 	uint16_t new_pc;
@@ -189,7 +188,7 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 #ifdef CALLER_STACK
 	fprintf(out, "#define CALLER_STACK 1\n");
 #endif
-	fprintf(out, "typedef struct { unsigned char A; unsigned char X; unsigned char Y; unsigned char S; char N; char V; char B; char D; char I; char Z; char C } state_t;\n");
+	fprintf(out, "typedef struct { unsigned char A; unsigned char X; unsigned char Y; unsigned char S; char N; char V; char B; char D; char I; char Z; char C; } state_t;\n");
 	for (int i = 0; i < num_funcs; i++) {
 		fprintf(out, "static state_t func_%04X(state_t, unsigned char *);\n", func_start[i]);
 	}
@@ -251,7 +250,6 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 /* recompilation! */
 	pc = start;
 	while (pc<end) {
-		int is_func = 0;
 		for (int i = 0; i < num_funcs; i++) {
 			if (pc >= func_start[i] && pc < func_end[i]) {
 				pc = func_end[i];
@@ -320,9 +318,6 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 }
 
 void tag(uint16_t start, uint16_t end, uint16_t pc) {
-	uint8_t opcode;
-	int i;
-
 #if VERBOSE
 	printf("starting tagging at $%02X\n", pc);
 #endif
