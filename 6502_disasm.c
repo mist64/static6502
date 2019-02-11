@@ -40,7 +40,7 @@ arch_disasm_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_line) 
 	} else {
 		switch (length[instraddmode[opcode].addmode]) {
 			case 0:
-				snprintf(line2, sizeof(line2), addmode_template[instraddmode[opcode].addmode]);
+				snprintf(line2, sizeof(line2), "%s", addmode_template[instraddmode[opcode].addmode]);
 				break;
 			case 1:
 				snprintf(line2, sizeof(line2), addmode_template[instraddmode[opcode].addmode], RAM[pc+1]);
