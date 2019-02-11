@@ -186,7 +186,7 @@ arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_lin
 				}
 			}
 			if (is_func) {
-				snprintf(line, max_line, "func_%04X()", new_pc);
+				snprintf(line, max_line, "func_%04X((state_t) { A, X, Y, S, N, V, B, D, I, Z, C }, RAM)", new_pc);
 				break;
 			}
 #endif
@@ -271,7 +271,7 @@ arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_lin
 			break;
 		case INSTR_RTS:
 			if (func_mode) {
-				snprintf(line+strlen(line), max_line-strlen(line), "return");
+				snprintf(line, max_line, "return (state_t) { A, X, Y, S, N, V, B, D, I, Z, C }");
 				break;
 			}
 #ifdef LITTLE_ENDIAN

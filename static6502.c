@@ -189,6 +189,11 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 #ifdef CALLER_STACK
 	fprintf(out, "#define CALLER_STACK 1\n");
 #endif
+	fprintf(out, "typedef struct { unsigned char A; unsigned char X; unsigned char Y; unsigned char S; char N; char V; char B; char D; char I; char Z; char C } state_t;\n");
+	for (int i = 0; i < num_funcs; i++) {
+		fprintf(out, "static state_t func_%04X(state_t, unsigned char *);\n", func_start[i]);
+	}
+	fprintf(out, "int main(int argc, char **argv) {\n");
 	/* TODO: this is 6502-specific */
 	fprintf(out, "unsigned char A, X, Y, S = 0xFF;\n");
 	fprintf(out, "unsigned short PC;\n");
@@ -198,10 +203,6 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 	fprintf(out, "void *lr[256];\n");
 	fprintf(out, "unsigned short lr_source[256];\n");
 #endif
-	for (int i = 0; i < num_funcs; i++) {
-		fprintf(out, "static void func_%04X(void);\n", func_start[i]);
-	}
-	fprintf(out, "int main(int argc, char **argv) {\n");
 #ifndef EMBED_ROM
 	fprintf(out, "FILE *f;\n");
 #endif
@@ -297,7 +298,8 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 #if 1
 	for (int i = 0; i < num_funcs; i++) {
 		pc = func_start[i];
-		fprintf(out, "static void func_%04X() {\n", pc);
+		fprintf(out, "static state_t func_%04X(state_t state, unsigned char *RAM) {\n", pc);
+		fprintf(out, "unsigned char A = state.A; unsigned char X = state.X; unsigned char Y = state.Y; unsigned char S = state.S; char N = state.N; char V = state.V; char B = state.B; char D = state.D; char I = state.I; char Z = state.Z; char C = state.C;\n");
 
 		while (pc < func_end[i]) {
 			if (tagging_type[pc] & (TYPE_CODE_TARGET|TYPE_AFTER_CALL)) {
