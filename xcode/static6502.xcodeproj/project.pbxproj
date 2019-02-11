@@ -49,6 +49,8 @@
 		CC5DD6A4221206E00038CEAC /* static6502.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = static6502.c; path = ../../static6502.c; sourceTree = "<group>"; };
 		CC5DD6A5221206E00038CEAC /* ret_optimization.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = ret_optimization.c; path = ../../ret_optimization.c; sourceTree = "<group>"; };
 		CC5DD6A6221206E00038CEAC /* tag.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = tag.h; path = ../../tag.h; sourceTree = "<group>"; };
+		CC5DD6B322120C170038CEAC /* rec.s */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; name = rec.s; path = ../../rec.s; sourceTree = "<group>"; };
+		CC5DD6B522120F0A0038CEAC /* rec.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = rec.c; path = ../../rec.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -100,6 +102,8 @@
 				CC5DD6A4221206E00038CEAC /* static6502.c */,
 				CC5DD6A6221206E00038CEAC /* tag.h */,
 				CC5DD69C221206DF0038CEAC /* types.h */,
+				CC5DD6B322120C170038CEAC /* rec.s */,
+				CC5DD6B522120F0A0038CEAC /* rec.c */,
 			);
 			path = static6502;
 			sourceTree = "<group>";

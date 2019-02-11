@@ -271,7 +271,7 @@ arch_recompile_instr(uint8_t* RAM, uint16_t pc, char *line, unsigned int max_lin
 			break;
 		case INSTR_RTS:
 			if (func_mode) {
-				snprintf(line, max_line, "return (state_t) { A, X, Y, S, N, V, B, D, I, Z, C }");
+				snprintf(line, max_line, "goto end");
 				break;
 			}
 #ifdef LITTLE_ENDIAN

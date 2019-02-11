@@ -298,6 +298,7 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 		pc = func_start[i];
 		fprintf(out, "static state_t func_%04X(state_t state, unsigned char *RAM) {\n", pc);
 		fprintf(out, "unsigned char A = state.A; unsigned char X = state.X; unsigned char Y = state.Y; unsigned char S = state.S; char N = state.N; char V = state.V; char B = state.B; char D = state.D; char I = state.I; char Z = state.Z; char C = state.C;\n");
+		fprintf(out, "S -= 2;\n");
 
 		while (pc < func_end[i]) {
 			if (tagging_type[pc] & (TYPE_CODE_TARGET|TYPE_AFTER_CALL)) {
@@ -310,6 +311,9 @@ void recompile_all(FILE *out, char *romname, char *entries, uint16_t start, uint
 				pc++;
 			}
 		}
+		fprintf(out, "end:\n");
+		fprintf(out, "S += 2;\n");
+		fprintf(out, "return (state_t) { A, X, Y, S, N, V, B, D, I, Z, C };\n");
 		fprintf(out, "}\n");
 	}
 
