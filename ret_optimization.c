@@ -127,7 +127,7 @@ find_rets_recursive(uint8_t* RAM, uint16_t start, uint16_t end, uint16_t entry, 
 				return;
 			case FLOW_TYPE_JUMP:
 				pc = new_pc;
-				break;
+				continue;
 			case FLOW_TYPE_BRANCH:
 				find_rets_recursive(RAM, start, end, entry, new_pc, level+1);
 				break;

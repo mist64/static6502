@@ -7,10 +7,10 @@ enum {						/* bitfield! */
 	TYPE_CODE_TARGET = 2,	/* static entry address */
 	TYPE_AFTER_CALL  = 4,	/* dynamic entry address, will require handling in dynamic entry table */
 	TYPE_SUBROUTINE  = 8,	/* CALLs point there */
-#ifdef RET_OPTIMIZATION
+//#ifdef RET_OPTIMIZATION
 	TYPE_CALL        = 16,	/* this instruction is a CALL */
 	TYPE_SAME_ENTRY  = 32	/* all instructions tagged with this at a time are at the same stack level */
-#endif
+//#endif
 };
 
 enum {

@@ -41,6 +41,7 @@
 #include "6502_isa.h"
 #include "6502_disasm.h"
 #include "6502_recompile.h"
+#include "find_functions.h"
 
 /* application specific headers */
 #include "cbmbasic.h"
@@ -96,9 +97,10 @@ int recompile_instr(FILE *out, uint16_t start, uint16_t pc, unsigned short *func
 	bytes = arch_recompile_instr(RAM, pc, recompilation_line, sizeof(recompilation_line), start, optimized_dispatch, func_start, func_end, num_funcs, func_mode);
 	fprintf(out, "%s\n", recompilation_line);
 
+	// XXX we have some (benign) false positives here
 	if ((bytes) && (tagging_type[pc+1] & TYPE_CODE_TARGET)) {	/* someone branches into the middle of this instruction */
 		uint16_t next = pc + bytes;
-		fprintf(out, "goto l%04X;\n", next);					/* skip the next instruction */
+		fprintf(out, ";;;;;goto l%04X;\n", next);					/* skip the next instruction */
 		tagging_type[next] |= TYPE_CODE_TARGET;					/* next instruction needs label */
 		bytes = 1;
 	}
@@ -397,11 +399,14 @@ int main(int argc, char **argv) {
 #ifdef RET_OPTIMIZATION
 	find_rets(RAM, start, end);
 #endif
+	find_functions(RAM, start, end);
 
-	unsigned short func_start[1];
-	unsigned short func_end[1];
+	unsigned short func_start[2];
+	unsigned short func_end[2];
 	func_start[0] = 0xe453;
 	func_end[0] = 0xe45f;
+//	func_start[1] = 0xA3B8;
+//	func_end[1] = 0xA3FB;
 	int num_funcs = 1;
 
 	recompile_all(out, romname, entries, start, end, entry, func_start, func_end, num_funcs);

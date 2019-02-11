@@ -14,6 +14,7 @@
 		CC5DD6B0221206E00038CEAC /* ret_optimization.c in Sources */ = {isa = PBXBuildFile; fileRef = CC5DD6A5221206E00038CEAC /* ret_optimization.c */; };
 		CC5DD6B1221207210038CEAC /* 6502_disasm.c in Sources */ = {isa = PBXBuildFile; fileRef = CC5DD69E221206E00038CEAC /* 6502_disasm.c */; };
 		CC5DD6B2221207660038CEAC /* static6502.c in Sources */ = {isa = PBXBuildFile; fileRef = CC5DD6A4221206E00038CEAC /* static6502.c */; };
+		CC5DD6B922121CFA0038CEAC /* find_functions.c in Sources */ = {isa = PBXBuildFile; fileRef = CC5DD6B822121CF90038CEAC /* find_functions.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -51,6 +52,8 @@
 		CC5DD6A6221206E00038CEAC /* tag.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = tag.h; path = ../../tag.h; sourceTree = "<group>"; };
 		CC5DD6B322120C170038CEAC /* rec.s */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; name = rec.s; path = ../../rec.s; sourceTree = "<group>"; };
 		CC5DD6B522120F0A0038CEAC /* rec.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = rec.c; path = ../../rec.c; sourceTree = "<group>"; };
+		CC5DD6B722121CF90038CEAC /* find_functions.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = find_functions.h; path = ../../find_functions.h; sourceTree = "<group>"; };
+		CC5DD6B822121CF90038CEAC /* find_functions.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = find_functions.c; path = ../../find_functions.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -99,6 +102,8 @@
 				CC5DD6A3221206E00038CEAC /* include_generic.c */,
 				CC5DD6A5221206E00038CEAC /* ret_optimization.c */,
 				CC5DD69A221206DF0038CEAC /* ret_optimization.h */,
+				CC5DD6B822121CF90038CEAC /* find_functions.c */,
+				CC5DD6B722121CF90038CEAC /* find_functions.h */,
 				CC5DD6A4221206E00038CEAC /* static6502.c */,
 				CC5DD6A6221206E00038CEAC /* tag.h */,
 				CC5DD69C221206DF0038CEAC /* types.h */,
@@ -166,6 +171,7 @@
 			files = (
 				CC5DD6B0221206E00038CEAC /* ret_optimization.c in Sources */,
 				CC5DD6A7221206E00038CEAC /* 6502_recompile.c in Sources */,
+				CC5DD6B922121CFA0038CEAC /* find_functions.c in Sources */,
 				CC5DD6AD221206E00038CEAC /* 6502_isa.c in Sources */,
 				CC5DD6B1221207210038CEAC /* 6502_disasm.c in Sources */,
 				CC5DD6A8221206E00038CEAC /* cbmbasic.c in Sources */,
